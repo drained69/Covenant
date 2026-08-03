@@ -1,0 +1,30 @@
+[profile.default]
+via_ir = true
+optimizer = true
+optimizer_runs = 800
+bytecode_hash = "none"
+evm_version = "osaka"
+fs_permissions = [{ access = "read", path = "test/ticks_exact.json" }]
+
+[profile.default.fmt]
+wrap_comments = true
+
+[lint]
+exclude_lints = [
+    "asm-keccak256",
+    "unsafe-cheatcode",
+    "incorrect-shift",
+    "block-timestamp",
+]
+
+# Named RPC endpoints — resolved from .env. Usage:
+#   forge script script/DeployCovenant.s.sol --rpc-url monad --broadcast --legacy
+#   forge test --fork-url monad
+# ${RPC_URL} is read from the process env; forge auto-loads .env into it when
+# it starts, so you no longer need `source .env` before every command.
+[rpc_endpoints]
+monad = "${RPC_URL}"
+
+# Etherscan-style verification config (unused for Monad today, ready for other chains).
+[etherscan]
+# monad = { key = "${MONAD_EXPLORER_KEY}", url = "https://testnet.monadexplorer.com/api" }

@@ -1,0 +1,449 @@
+# Covenant
+
+**Compliance-native infrastructure for institutional on-chain credit.**
+
+Covenant makes fixed-rate, fixed-maturity credit markets usable by regulated institutions. It combines a fixed-maturity credit engine with a gate layer that enforces identity verification, jurisdictional policy, and sanctions screening *inside* the market's own access-control path — not as an off-chain side process.
+
+---
+
+## The problem
+
+On-chain lending today is either variable-rate or permissionless. Neither is usable by a bank, a tokenized-deposit provider, or an RWA issuer. Those institutions need three things before they can extend credit on-chain:
+
+1. **Verified counterparties** — they cannot legally lend to unscreened wallets.
+2. **Jurisdiction-aware transfer rules** — every position change must clear sanctions and Travel Rule policy.
+3. **Extractable audit trails** — regulators must be able to reconstruct who lent to whom, under what terms.
+
+The standard industry answer is to bolt KYC on as an off-chain gate: a database checked before a transaction, disconnected from settlement, invisible to auditors, and stale the moment a credential is revoked. That leaves a permanent gap between *who passed KYC* and *who actually holds the position*. Covenant closes that gap by moving the check on-chain and into the settlement path itself.
+
+## The approach
+
+The credit engine exposes three access-control hooks that fire before any position change:
+
+| Hook | Fires when | Question asked |
+|------|-----------|----------------|
+| `canIncreaseCredit(account)` | An account's credit (lending) position grows | May this account lend? |
+| `canIncreaseDebt(account)` | An account's debt (borrowing) position grows | May this account borrow? |
+| `canLiquidate(account)` | An account attempts a liquidation | May this account seize? |
+
+Covenant implements these hooks against **Cleanverse**, whose Cooperate API (v5.6) supplies two primitives that map onto them directly:
+
+- **A-Pass** — a credential registered on-chain against a wallet, carrying an expiry, a tier and sub-tier, a group, and ISO-3166 country tags derived from the holder's identity documents. It can be frozen and unfrozen, and it is the unit of institutional identity.
+- **Compliance pools** — per-chain contracts holding rules that decide whether a wallet is eligible. Rules combine a country allow/deny list (`is_black_list`, `countries`), tier and group constraints, and a pause switch. `POST /validator/verify` answers, for a given pool and wallet, `valid: true | false`.
+
+That verify call is the same question a gate hook asks, which is what makes the mapping clean: **a Covenant market's policy is a Cleanverse compliance pool.**
+
+### How the two halves connect
+
+Cleanverse and Covenant meet at exactly one point: the gate contract. Everything else is an implementation detail on one side or the other.
+
+```
+   Institution's KYC provider           Cleanverse Cooperate API              Cleanverse compliance pool
+   (documents, sanctions, jurisdiction)  (rules, A-Pass, verify)              (on-chain contract)
+                    │                              │                                   │
+                    └──── issues A-Pass ──────────▶│                                   │
+                                                   └── registers wallet against ─────▶│
+                                                                                       │
+                                                                                       │  isRegistered()
+                                                                                       │  paused()
+                                                                                       │  verify(wallet)
+                                                                                       ▲
+   ┌───────────────────────────────────────────────────────────────────────────────────┘
+   │
+   │ every position-increasing tx
+   │
+   ▼
+   Covenant market  ──▶  entryGate.canIncreaseCredit/Debt  ──▶  CleanversePoolGate  ──▶  pool.verify(...)
+                     ▲
+                     └── seizureGate.canLiquidate ──▶ same path for liquidators
+```
+
+The gate is the **only** place the two systems touch. That single point is what makes the integration auditable: a regulator or internal risk team can trace any position back to the exact pool it depends on, the exact rules that pool held at the time, and the exact A-Pass that satisfied them.
+
+### Why an on-chain gate at all
+
+What Cleanverse cannot do is answer a Solidity `view`. A gate hook executes inside a trade with no ability to make an HTTPS request, so Covenant needs a source of truth reachable from inside the EVM. Two shapes work:
+
+1. **Cleanverse's own on-chain compliance pool** — Cleanverse deploys a contract per chain that mirrors the same rules the Cooperate API enforces off-chain. The gate calls it directly with a bounded-gas `staticcall`. This is Path A below and is the default institutional integration.
+2. **A Covenant-operated attestation registry** — authorised attesters call the Cooperate API off-chain, then commit the verdict on-chain as an attestation the gate reads. This is Path B, used when Cleanverse does not yet have an on-chain pool on the target chain, or when Covenant needs to layer additional policy (per-action limits, per-market caps) on top of pure Cleanverse eligibility.
+
+Both paths satisfy the same market interface, so a market's compliance guarantee does not depend on which one it uses — only on the fact that the gate is bound at market creation and cannot be swapped.
+
+The result is that compliance becomes a mechanical property of the market. An account with no valid attestation cannot open a position. A revoked credential blocks further exposure at the contract level, in the same transaction, without an off-chain process needing to notice. Because gates are part of a market's identity, they cannot be swapped out after the fact — a market is either compliant from creation or it is a different market.
+
+## Architecture
+
+Covenant is four cooperating layers. Each layer talks to the one below through a narrow, view-only interface. That narrowness is the reason the system is safe to compose: a change in one layer cannot silently reach another.
+
+```
+   ┌───────────────────────────────────────────────────────────────────────┐
+   │ 1. Frontend           React + wagmi SPA                               │
+   │                       Take-offer paste box, action tabs, positions   │
+   └──────────────────────────────┬────────────────────────────────────────┘
+                                  │ off-chain: read markets, submit txs
+   ┌──────────────────────────────┴────────────────────────────────────────┐
+   │ 2. Off-chain services   sign_offer.js (EIP-712 offer producer)        │
+   │                         cleanverse_client.py (Cooperate API client,   │
+   │                         AES-CBC, api-id header, fail-closed mirror)   │
+   └──────────────────────────────┬────────────────────────────────────────┘
+                                  │ signed offers, attestation writes
+   ┌──────────────────────────────┴────────────────────────────────────────┐
+   │ 3. Credit engine      src/Covenant.sol                                │
+   │                       fillOffer / repay / withdraw / seize            │
+   │                       + notary ratification (src/notaries/)           │
+   │                       + oracle price feed (src/oracles/)              │
+   │                       + market identity via keccak of every field    │
+   └───────────────┬──────────────────────────────────┬─────────────────────┘
+                   │ gate hooks (view, in-tx)         │ ERC-20 movements
+   ┌───────────────┴───────────────┐    ┌─────────────┴─────────────────────┐
+   │ 4a. Compliance gates          │    │ 4b. Compliance-aware token layer  │
+   │  src/compliance/              │    │  src/compliance/WrappedAToken.sol │
+   │    CleanversePoolGate         │    │  1:1 wrap of any origin ERC-20    │
+   │    CovenantGate + Registry    │    │  transfers checked against pool   │
+   │    PermissiveGate (demo)      │    │  closes the flashLoan surface     │
+   └───────────────┬───────────────┘    └────────────────┬──────────────────┘
+                   │ staticcall (150k gas cap)           │ staticcall (same shape)
+                   └─────────────────┬───────────────────┘
+                                     ▼
+                     ┌───────────────────────────────┐
+                     │ Cleanverse compliance pool    │
+                     │ isRegistered / paused /       │
+                     │ verify(wallet)                │
+                     └───────────────────────────────┘
+```
+
+**Layer responsibilities:**
+
+- **Frontend (`frontend/`)** — a React SPA. Reads market state directly from `Covenant.toMarket(id)`; submits fills via `fillOffer` with a pasted offer JSON. No backend of our own — the marketplace is whatever channel the maker uses to publish signed offers.
+- **Off-chain services (`offchain/`)** — the offer producer and the Cleanverse API client. The client's `attestable` property is the exact mirror of the on-chain gate's fail-closed rule so the two halves can never disagree.
+- **Credit engine (`src/Covenant.sol`, `src/notaries/`, `src/oracles/`, `src/libraries/`)** — the fixed-maturity credit primitive. Market identity is the keccak of every field including gate addresses, so a market's compliance policy cannot be silently rebound after creation.
+- **Compliance surface (`src/compliance/`)** — split cleanly in two:
+  - **Gates** decide "may this account open a position?" — called from the engine on every increase in exposure.
+  - **`WrappedAToken`** decides "may this account receive these tokens?" — called from the token itself on every transfer. Using it as the loan token closes the `flashLoan` surface at the token layer.
+
+Both compliance sub-layers use the **same** `isRegistered → paused → verify` staticcall sequence with the **same** 150 000 gas cap and the **same** fail-closed rule, so an operator only has to reason about one policy shape.
+
+## Compliance layer
+
+The project ships two gate implementations. They enforce the same market interface but connect to Cleanverse differently.
+
+### Path A — Direct pool gate (`CleanversePoolGate`)
+
+The recommended integration. The gate reads Cleanverse's on-chain compliance pool directly, inside the trade.
+
+```
+                        ┌──────────────────────────────┐
+   position change ───▶ │   Fixed-maturity credit      │
+   (lend/borrow/        │   engine                     │
+    seize)          └──────────────┬───────────────┘
+                                       │ gate hook (view, on-chain)
+                                       ▼
+                        ┌──────────────────────────────┐
+                        │   CleanversePoolGate         │
+                        │   staticcall, bounded gas    │
+                        │   fail-closed                │
+                        └──────────────┬───────────────┘
+                                       │ isRegistered / paused / verify
+                                       ▼
+                        ┌──────────────────────────────┐
+                        │   Cleanverse compliance pool │
+                        │   (Cleanverse-deployed)      │
+                        │   rules · A-Pass eligibility │
+                        └──────────────────────────────┘
+```
+
+The pool contract is what the Cleanverse API endpoint `POST /validator/verify` front-ends off-chain — the same on-chain view a compliance officer would call from the API is the one the gate calls inside the trade. There is no attester and no bridge; Cleanverse's own pool is the source of truth.
+
+### Path B — Attestation registry (`CovenantGate` + `CovenantRegistry`)
+
+An optional additional-policy layer, useful when Covenant needs to enforce per-action or Covenant-specific rules on top of Cleanverse eligibility, or when the target chain does not have a directly-callable Cleanverse pool contract.
+
+```
+   position change ───▶ credit engine ──▶ CovenantGate ──▶ CovenantRegistry
+                                                                 ▲
+                                             attester ───────────┘
+                                                 │
+                                                 └── HTTPS ── Cleanverse Cooperate API
+```
+
+Attesters are per-registry roles; they may only write attestations and set per-policy permits. They cannot move funds, alter markets, or grant themselves privileges. No personal data goes on-chain — only a hash commitment to the off-chain verification record, plus jurisdiction, validity window, and revocation state. Every write emits an event naming the attester and the source commitment, which is what makes the audit trail reconstructible.
+
+### Properties both paths preserve
+
+- **Gate calls are `view`.** They return a boolean the engine turns into a revert. Failure is interpreted, never propagated.
+- **Bounded gas per read.** A misbehaving remote cannot consume the whole trade's gas budget and convert a compliance denial into a market-wide DoS.
+- **Fail-closed.** Reverting reads, unreachable pools, and malformed data all deny. Unavailable verification is never treated as clearance.
+- **Only *increases* are gated.** Repay and withdraw remain open, so an outage or credential revocation cannot strand capital already committed to a position.
+- **Gate binds to market identity.** The gate address is part of the `Market` struct that hashes into the market id. A "compliant" market and an "open" market for the same asset are different markets with different ids — positions cannot leak between them, and a live market's compliance policy cannot be silently redirected by swapping the gate.
+
+## Function coverage
+
+Every state-changing function in the lending core, and whether the gate applies. Reviewed against `src/Covenant.sol`.
+
+### Position-mutating (user-facing)
+
+| Function | Creates exposure? | Gated? | Why |
+|---|---|---|---|
+| `fillOffer` | Yes — buyer credit ↑ and/or seller debt ↑ | **Yes**, only on the increasing side | `canIncreaseCredit(buyer)` fires iff `buyerCreditIncrease > 0`; `canIncreaseDebt(seller)` iff `sellerDebtIncrease > 0`. Reductions ungated. |
+| `seize` | Reduces borrower's debt/collateral | **Yes**, on `msg.sender` | `canLiquidate(msg.sender)` — the liquidator is the actor being screened, not the borrower. |
+| `withdraw` | No — burns credit for loan tokens (settlement) | No | Exit path. Gating would strand a lender who lost their credential after committing capital. |
+| `repay` | No — reduces debt | No | Exit path. Also permits a third party to repay on behalf of a compliant borrower whose credential has since been frozen. |
+| `supplyCollateral` | No — tops up collateral | No | Cannot become debt without going through the gated `fillOffer`. Supplying collateral to another's position is a donation, not exposure. |
+| `withdrawCollateral` | No — reduces collateral, healthiness enforced | No | Exit path. `isHealthy` prevents unsafe withdrawals; compliance is orthogonal. |
+
+### Non-position (infrastructure)
+
+| Function | Gated? | Rationale |
+|---|---|---|
+| `initMarket` | No | Permissionless market creation is safe because the gate addresses are part of the market id — a market with `entryGate = 0` is a **different** market than a Cleanverse-gated one. Positions cannot merge across market ids. |
+| `setConsumed` | No | Offer-cap bookkeeping; no position mutation. |
+| `setIsAuthorized` | No | Delegation only. The position holder is what `fillOffer` gates, not the caller — delegating to a non-compliant party cannot open a non-compliant position. |
+| `multicall` | No | Uses `delegatecall`, so inner calls run under the outer `msg.sender`. Each inner call is individually gated where the underlying function is. |
+| `updatePosition` | No | Fee accrual and bad-debt slashing; deterministic bookkeeping. |
+| Admin setters, `claimSettlementFee`, `claimContinuousFee` | No | Protocol governance, not user-facing. |
+
+### `flashLoan`: the one surface not gated at the market layer
+
+`flashLoan` lets anyone borrow arbitrary tokens from the Covenant contract's balance for a single transaction. That balance includes loan tokens supplied by lenders of compliant markets and collateral supplied by compliant borrowers. A non-compliant wallet can `flashLoan()` those tokens into a callback and use them within the same transaction — repay unrelated debt, sell on a DEX, manipulate an oracle — before returning them.
+
+This is not a bug I introduced or one that Covenant's compliance layer can close, because flash loans span markets. The `Market` struct has no `flashLoanGate` field, and the `flashLoan` selector is on the core contract itself. Two ways it stays defensible in the Cleanverse model:
+
+1. **Loan-token-layer enforcement (built and tested here).** Cleanverse's A-Token standard enforces compliance rules (country allow/deny, tier, group) at the token contract itself. This repo ships [`WrappedAToken`](src/compliance/WrappedAToken.sol), a 1:1 wrapper for any origin ERC-20 that consults the same `ICleanversePool` the market gate uses — with the same fail-closed, gas-bounded read shape — inside every inbound transfer. When a Covenant market's loan token is a `WrappedAToken`, `covenant.flashLoan([waUSDC], ..., callback)` reverts inside `safeTransfer(waUSDC, callback, amt)` with `RecipientNotCompliant(callback)` **before** the callback is invoked, whenever the callback wallet is not verified in the pool. This is proven mechanically in [`test/compliance/WrappedATokenFlashLoanTest.sol`](test/compliance/WrappedATokenFlashLoanTest.sol) against the same `MockCleanversePool` the gate uses. The market gate becomes belt-and-suspenders; the token is the belt.
+
+2. **Deployment topology.** An institution deploying Covenant for regulated markets can fork the core contract and either disable `flashLoan` entirely or add a global compliance gate to it. This is a governance choice, not something a compliance layer sitting *outside* the core can enforce.
+
+The gate coverage above is what the market layer protects; flash-loan behaviour is inherited from the underlying protocol, and this repo closes it at the token layer via `WrappedAToken`.
+
+### `WrappedAToken` — closing the flash-loan surface at the token layer
+
+The recommended deployment for a regulated Covenant market pairs the market gate (`CleanversePoolGate` or `CovenantGate`) with a `WrappedAToken` as the loan token. The wrapper is the on-chain analogue of Cleanverse's `POST /atoken/launch_wrapped_atoken`: it locks an origin token (e.g. native USDC) and mints wrapped units at 1:1, gating every inbound transfer against the bound compliance pool at the token layer.
+
+```
+   deposit(USDC) ─▶ WrappedAToken ─mint waUSDC─▶ verified recipient
+                        │                        (pool.verify(to) must hold, else revert)
+                        │
+   Covenant.flashLoan([waUSDC], amt, callback):
+     safeTransfer(waUSDC → callback)  ─▶ WrappedAToken._transfer
+                                             │
+                                             ├── isExempt(callback)?      no ─┐
+                                             ├── pool.isRegistered()?     yes │
+                                             ├── pool.paused()?           no  ├─▶ pool.verify(callback)
+                                             └── any read fails?          → revert RecipientNotCompliant
+```
+
+Design invariants (mirrored point-for-point with `CleanversePoolGate`, so token and gate cannot disagree):
+
+- **Immutable pool binding** — changing the compliance source requires a new token, and therefore a new market. Prevents a live loan asset being silently repointed at a laxer policy.
+- **Only inbound transfers are gated** — `withdraw` (burn-to-origin) is intentionally open, so a holder whose credential is later frozen can always reclaim their locked origin balance. This is the token-layer version of the engine's "gate increases, not exits" rule.
+- **Gas-bounded, fail-closed reads** — same `POOL_GAS_LIMIT = 150_000` staticcall shape as the gate. A misbehaving pool cannot DoS a transfer, and any failure resolves to `not eligible`.
+- **Minimal exempt set** — the token owner may register infrastructure addresses that need to route the wrapper as pass-through liquidity (the Covenant core itself, a bundler, a router). This is the on-chain analogue of Cleanverse's institutional deposit-address whitelist (`POST /atoken/whitelist/add`) and is deliberately narrow.
+
+To deploy the compliant loan token:
+
+```solidity
+// 1. Deploy the wrapper against native USDC and your pool.
+WrappedAToken waUSDC = new WrappedAToken(
+    IERC20(NATIVE_USDC),
+    ICleanversePool(POOL),
+    OWNER_MULTISIG,
+    "Wrapped Access USDC",
+    "waUSDC",
+    6
+);
+
+// 2. Exempt protocol infrastructure that must hold the wrapper as routing state.
+waUSDC.setExempt(address(covenant), true);
+
+// 3. Create a Covenant market whose `loanToken` is the wrapper. The market gate can be
+//    CleanversePoolGate or CovenantGate — the wrapper composes with either.
+market.loanToken = address(waUSDC);
+```
+
+Every increase in exposure is now checked twice by design: once by the market gate on the position holder, once by the token on the transfer recipient. Every non-position transfer — including `flashLoan` — is still checked by the token.
+
+### Receiver flows (loan tokens and collateral)
+
+`fillOffer`, `withdraw`, `withdrawCollateral`, and `seize` all accept a `receiver` parameter. The receiver is *not* gated. This is deliberate: compliance is enforced on **who holds the position**, not on where the position holder chooses to send redeemed tokens. A compliant borrower directing loan-token proceeds to a third-party wallet is analogous to a bank customer disbursing a loan into a third-party account — the borrower's own compliance obligations (e.g., Travel Rule reporting on their onward transfer) apply, and the market is not the enforcement point for that.
+
+## Core formulas
+
+Every constant and formula below is exercised by tests in this repo — see the referenced files.
+
+### 1. Market identity
+
+Two markets differing in a single parameter (including gate addresses) are provably distinct market ids. See `IdLib.toId`.
+
+```
+id = keccak256(
+        abi.encodePacked(
+            0xff,
+            covenantAddress,
+            chainId,
+            keccak256(abi.encodePacked(SSTORE2_PREFIX, abi.encode(market)))
+        )
+     )
+```
+
+### 2. Oracle scaling
+
+Covenant's liquidation identity: `collateral_raw × price / ORACLE_PRICE_SCALE = value_in_loan_token_raw` with `ORACLE_PRICE_SCALE = 1e36`. An oracle wrapping a feed at `feedDecimals` for a `(collateralDecimals, loanDecimals)` pair emits:
+
+```
+price = feed_answer × 10^loanDecimals × ORACLE_PRICE_SCALE
+                    / (10^feedDecimals × 10^collateralDecimals)
+
+SCALE = ORACLE_PRICE_SCALE × 10^loanDecimals
+                           / 10^(collateralDecimals + feedDecimals)   // precomputed
+```
+
+See `ChainlinkBtcUsdOracle.SCALE` and `testFuzz_priceIdentity`.
+
+### 3. Maximum debt from collateral (`isHealthy`)
+
+With `WAD = 1e18`, rounded down at each step:
+
+```
+maxDebt = Σ  collateral_i × price_i / ORACLE_PRICE_SCALE × lltv_i / WAD
+```
+
+Position is healthy iff `debt ≤ maxDebt`. See `Covenant.isHealthy`.
+
+### 4. Bad-debt bound (liquidation floor)
+
+Amount of debt unrecoverable even after seizing all collateral at maximum discount:
+
+```
+badDebt = max(0, debt − Σ collateral_i × price_i / ORACLE_PRICE_SCALE × WAD / maxLif_i)
+```
+
+See `Covenant.seize`.
+
+### 5. Continuous fee reservation
+
+When new credit opens at time `t` in a market maturing at `T`:
+
+```
+buyerPendingFeeIncrease   = buyerCreditIncrease × continuousFee × (T − t) / WAD
+
+sellerPendingFeeDecrease  = sellerPendingFee × sellerCreditDecrease / sellerCredit
+```
+
+The rate is locked in at issuance. See `Covenant.fillOffer`.
+
+### 6. Compliance gate (Cleanverse pool path)
+
+For a market with `entryGate != address(0)`, a position increase requires:
+
+```
+CleanversePool(pool).isRegistered() == true
+  ∧ CleanversePool(pool).paused()   == false
+  ∧ CleanversePool(pool).verify(participant) == true
+```
+
+Every read is a gas-bounded `staticcall`; any failure resolves to "not eligible" (fail-closed). Only *increases* are gated — repay and withdraw stay open. See `CleanversePoolGate._eligible`.
+
+### 7. Compliance mode (deployment-level enforcement)
+
+When `Covenant` is deployed with `REQUIRE_COMPLIANCE = true`:
+
+```
+initMarket(market) succeeds only if:
+    market.entryGate   ≠ 0
+  ∧ market.seizureGate ≠ 0
+  ∧ isApprovedGate[market.entryGate]
+  ∧ isApprovedGate[market.seizureGate]
+```
+
+Structurally impossible to hold a non-gated market on this deployment. See `Covenant.initMarket` and `test/compliance/ComplianceModeTest.t.sol`.
+
+### Cleanverse integration status
+
+Verified against the UAT gateway, `https://uatapi.cleanverse.com/api/cooperate`. The three endpoints marked ★ correspond one-to-one with the three `staticcall` reads `CleanversePoolGate._eligible` performs on-chain — the off-chain client and the on-chain gate ask the pool the same questions in the same order:
+
+| Capability | Endpoint | On-chain equivalent | Status |
+|-----------|----------|---------------------|--------|
+| Authentication (`api-id` header) | — | — | Working — `code: "0000"` |
+| ★ Pool registration check | `POST /validator/is_register` | `pool.isRegistered()` | Working |
+| ★ Pool pause state | `POST /validator/is_paused` | `pool.paused()` | Working |
+| ★ User eligibility | `POST /validator/verify` | `pool.verify(account)` | Reachable; returns `12027` until the wallet holds an A-Pass |
+| Pool rules incl. country allow/deny | `POST /validator/rules` | (informational; enforced inside `verify`) | Working |
+| A-Pass lookup | `POST /query_apass` | — | Implemented, not yet exercised |
+| A-Pass issue / freeze | `POST /generate_apass`, `/update_status` | — | Implemented (AES), not yet exercised |
+| Wrapped A-Token issuance | `POST /atoken/launch_wrapped_atoken` | `WrappedAToken` deploy | On-chain wrapper shipped; API-side issuance not yet wired |
+| Institutional deposit whitelist | `POST /atoken/whitelist/add` | `WrappedAToken.setExempt(account, true)` | On-chain equivalent shipped |
+
+Integration details the client handles, each of which is easy to get wrong:
+
+- **Base path is `/api/cooperate`.** The bare host serves an unrelated older API; requests there succeed with the wrong semantics rather than failing loudly.
+- **Only `api-id` is transmitted.** The api-key is an AES key used locally and must never be sent. Putting it in a header would hand an attacker the ability to forge encrypted request bodies.
+- **Mutating endpoints require AES/CBC/PKCS5 with a fixed 16-zero-byte IV**, keyed by the base64-decoded api-key, sent as `{"data": "<base64 ciphertext>"}`.
+- **Success is `code == "0000"`, a string.** HTTP 200 is returned for business failures too, so the HTTP status alone tells you nothing.
+- **`valid: false` is a compliance verdict, not an error** — it must not be retried as one.
+- **Cloudflare fronts the gateway** and bans the default `Python-urllib` user-agent with error 1010.
+- **Infrastructure errors arrive as JSON.** A Cloudflare 403 parses into an envelope-shaped object; treating it as a business response would silently report a blocked request as an ineligible wallet. The client rejects any response lacking a `code` field and preserves the cause.
+
+Unavailable verification is never treated as clearance. The client's `attestable` property mirrors the gate's fail-closed rule so the off-chain and on-chain halves cannot disagree.
+
+### Current Sepolia state
+
+Cleanverse has not yet published a Sepolia compliance-pool address. To keep the end-to-end demo runnable in the meantime, this repository ships a `PermissiveGate` (`src/compliance/PermissiveGate.sol`) that returns `true` for every hook. It is deployed at [`0x026a6cfbb2922322fb7c4956263088ee5a934fff`](https://sepolia.etherscan.io/address/0x026a6cfbb2922322fb7c4956263088ee5a934fff) and bound to the demo market. It exists so a market can be created, offers signed, positions opened, and the wiring exercised without a live Cleanverse pool.
+
+Because gate addresses are part of the market id, the demo market and the eventual compliant market are *different* markets — no state leaks between them. Swapping in the real `CleanversePoolGate` is a matter of: (1) obtaining the Sepolia pool address from Cleanverse, (2) deploying `CleanversePoolGate(pool)`, (3) calling `covenant.setApprovedGate(gate, true)`, (4) creating a fresh market bound to the new gate. Step-by-step commands are in [todo.md](./todo.md#step-1--swap-permissivegate-for-cleanversepoolgate).
+
+### Repository layout
+
+| Path | Contents |
+|------|----------|
+| `src/` | Core fixed-maturity credit engine and libraries |
+| `src/compliance/` | `CleanversePoolGate`, `CovenantGate`, `CovenantRegistry`, `WrappedAToken`, and their interfaces |
+| `src/interfaces/` | Engine and gate interfaces |
+| `src/periphery/` | Bundlers and helper libraries |
+| `src/ratifiers/` | Offer authorization modules |
+| `test/compliance/` | Gate and registry test suites |
+| `certora/` | Formal verification specifications |
+| `offchain/` | Cleanverse API client and cached OpenAPI spec |
+
+## Getting started
+
+Build and test with [Foundry](https://book.getfoundry.sh/getting-started/installation):
+
+```bash
+forge build
+```
+
+```bash
+forge test
+```
+
+Run only the compliance layer's tests:
+
+```bash
+forge test --match-path "test/compliance/*" -vvv
+```
+
+### Off-chain attester
+
+The Cleanverse API is authenticated per-application. Configure credentials via environment variables — never commit them:
+
+```bash
+cp .env.example .env
+```
+
+Populate `.env` with your Cleanverse application ID and API key. `.env` is gitignored.
+
+## Design constraints
+
+Two properties of the gate interface shape what Covenant can and cannot enforce on-chain. They are documented here rather than glossed over:
+
+- **Gates are per-account, not per-pair.** The engine calls `canIncreaseCredit(buyer)` and `canIncreaseDebt(seller)` independently, so a gate cannot observe the counterparty. Per-account policy — identity validity, jurisdiction, sanctions, asset eligibility — is fully enforceable. Genuine pairwise checks such as Travel Rule counterparty matching require either an off-chain pre-clearance step or the engine's offer-notarization path, and are treated as a separate workstream.
+- **Gates bind at market creation.** A market's identity includes its gate addresses, so compliance policy cannot be retrofitted or silently changed on a live market. Policy evolution happens inside the Cleanverse registry that the gate reads, not by replacing the gate.
+
+## Positioning
+
+Covenant is infrastructure, not a licensed financial institution. It does not custody assets, issue tokens, or act as counterparty to any loan. Institutions using Covenant markets remain the regulated actors; Covenant supplies the rails and the enforcement layer that make those markets viable for them.
+
+## Documentation
+
+- [Business plan](./business_plan.pdf)
+- [Cleanverse API documentation](https://docs.cleanverse.com/)
+- [Off-chain signing flow](./offchain/SIGNING.md)

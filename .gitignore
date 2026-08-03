@@ -1,0 +1,28 @@
+# Foundry
+cache/
+out/
+broadcast/
+
+
+# Secrets - never commit
+.env
+.env.local
+.env.*
+!.env.example
+
+# Python
+__pycache__/
+*.pyc
+.pytest_cache/
+.venv/
+venv/
+env/
+
+# IDE / OS
+.vscode/
+.idea/
+.DS_Store
+
+# Temporary / Scratchpad folders
+.scratchpad/
+

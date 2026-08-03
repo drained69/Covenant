@@ -1,0 +1,137 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root { color-scheme: dark; }
+
+html, body, #root { height: 100%; }
+
+body {
+  @apply bg-ink-950 text-slate-100 font-sans antialiased;
+  background-image:
+    radial-gradient(at 10% 60%, rgba(14, 198, 181, 0.18) 0px, transparent 45%),
+    radial-gradient(at 90% 10%, rgba(30, 64, 175, 0.14) 0px, transparent 45%),
+    radial-gradient(at 50% 100%, rgba(14, 198, 181, 0.08) 0px, transparent 55%);
+  background-attachment: fixed;
+}
+
+/* Reusable primitives — kept small so components stay expressive with utilities. */
+@layer components {
+  /* ── Cards ─────────────────────────────────────────────────────────── */
+  .card {
+    @apply relative rounded-lg border border-line bg-surface-solid/85 backdrop-blur-sm;
+    box-shadow: 0 4px 20px 0 rgba(0, 0, 0, 0.45), inset 0 1px 0 0 rgba(255, 255, 255, 0.04);
+  }
+  .card-glow {
+    @apply card;
+    box-shadow:
+      0 4px 20px 0 rgba(0, 0, 0, 0.45),
+      inset 0 1px 0 0 rgba(255, 255, 255, 0.04),
+      0 0 0 1px rgba(34, 211, 194, 0.28),
+      0 0 20px -2px rgba(14, 198, 181, 0.35);
+  }
+  .card-header {
+    @apply flex items-center justify-between px-5 py-4 border-b border-line;
+  }
+  .card-title { @apply text-sm font-semibold tracking-wide text-slate-100; }
+  .card-body  { @apply p-5; }
+
+  /* ── Buttons ───────────────────────────────────────────────────────── */
+  .btn {
+    @apply inline-flex items-center justify-center gap-2 px-4 py-2.5 rounded-md
+           text-sm font-semibold transition duration-150
+           disabled:opacity-40 disabled:cursor-not-allowed;
+  }
+  .btn-primary {
+    @apply btn text-slate-950 relative overflow-hidden;
+    background:
+      linear-gradient(180deg, rgba(34, 211, 194, 1) 0%, rgba(14, 198, 181, 1) 100%);
+    box-shadow: 0 0 0 1px rgba(34, 211, 194, 0.5), 0 0 20px 0 rgba(14, 198, 181, 0.45);
+  }
+  .btn-primary:hover:not(:disabled) {
+    box-shadow: 0 0 0 1px rgba(34, 211, 194, 0.7), 0 0 30px 0 rgba(14, 198, 181, 0.6);
+  }
+  .btn-secondary {
+    @apply btn bg-surface-raised/70 text-slate-100 border border-line
+           hover:border-brand-500/40 hover:text-white;
+  }
+  .btn-ghost { @apply btn text-slate-300 hover:text-white hover:bg-white/5; }
+
+  /* ── Nav (icon-tab pill row) ───────────────────────────────────────── */
+  .nav-tab {
+    @apply inline-flex items-center gap-2 px-3.5 py-2 rounded-md text-sm font-semibold
+           text-slate-400 border border-transparent transition;
+  }
+  .nav-tab:hover { @apply text-slate-100 bg-white/5; }
+  .nav-tab-active {
+    @apply nav-tab text-slate-100;
+    background: linear-gradient(180deg, rgba(14, 198, 181, 0.14) 0%, rgba(14, 198, 181, 0.04) 100%);
+    border-color: rgba(34, 211, 194, 0.5);
+    box-shadow: 0 0 0 1px rgba(34, 211, 194, 0.25), 0 0 16px -2px rgba(14, 198, 181, 0.5);
+  }
+  .nav-tab-icon {
+    @apply w-4 h-4 flex-shrink-0;
+  }
+
+  /* ── Step indicator (numbered circles with connector) ──────────────── */
+  .step-row {
+    @apply flex items-center justify-center gap-2;
+  }
+  .step-dot {
+    @apply w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold
+           border border-line bg-surface-raised text-slate-500;
+  }
+  .step-dot-active {
+    @apply step-dot text-slate-950;
+    background: radial-gradient(circle at 50% 40%, #4feadb 0%, #0ec6b5 100%);
+    border-color: rgba(34, 211, 194, 0.6);
+    box-shadow: 0 0 0 3px rgba(34, 211, 194, 0.15), 0 0 20px 0 rgba(14, 198, 181, 0.55);
+  }
+  .step-dot-done {
+    @apply step-dot text-brand-300 border-brand-500/40 bg-brand-500/10;
+  }
+  .step-label {
+    @apply text-[11px] font-medium tracking-wide text-slate-500;
+  }
+  .step-label-active { @apply step-label text-brand-300; }
+  .step-connector {
+    @apply h-px w-14 bg-gradient-to-r from-line via-brand-500/30 to-line;
+  }
+
+  /* ── Stats ─────────────────────────────────────────────────────────── */
+  .stat-label { @apply text-[11px] font-semibold tracking-widest uppercase text-muted; }
+  .stat-value { @apply text-2xl font-semibold text-slate-50 tabular-nums; }
+  .stat-value-up   { @apply stat-value text-ok; }
+  .stat-value-down { @apply stat-value text-bad; }
+  .stat-value-pop  { @apply stat-value text-pop; }
+  .stat-hint  { @apply text-xs text-subtle mt-1; }
+
+  /* ── Fields ────────────────────────────────────────────────────────── */
+  .field       { @apply block; }
+  .field-label { @apply block text-xs font-semibold tracking-widest uppercase text-muted mb-1.5; }
+  .field-input {
+    @apply w-full bg-ink-900/70 border border-line rounded-md px-3 py-2.5
+           text-sm font-mono text-slate-100 outline-none
+           focus:border-brand-500 focus:ring-1 focus:ring-brand-500 placeholder:text-subtle;
+  }
+
+  /* ── Badges ────────────────────────────────────────────────────────── */
+  .badge      { @apply inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full
+                       text-[10px] font-bold tracking-widest uppercase; }
+  .badge-ok   { @apply badge bg-ok/10 text-ok; }
+  .badge-warn { @apply badge bg-warn/10 text-warn; }
+  .badge-bad  { @apply badge bg-bad/10 text-bad; }
+  .badge-info { @apply badge bg-brand-500/10 text-brand-300; }
+
+  .divider { @apply border-t border-line; }
+  .link { @apply text-brand-300 hover:text-brand-200 transition; }
+
+  /* ── Chart gradient area (decorative, no chart lib) ────────────────── */
+  .chart-fill {
+    background: linear-gradient(180deg, rgba(34, 211, 194, 0.32) 0%, rgba(34, 211, 194, 0) 100%);
+  }
+}
+
+/* Utility for hiding horizontal scrollbars on tab rows. */
+.no-scrollbar::-webkit-scrollbar { display: none; }
+.no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
