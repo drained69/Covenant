@@ -11,6 +11,10 @@
     "esModuleInterop": true,
     "resolveJsonModule": true,
     "isolatedModules": true,
+    // Vite compiles the TS; tsc is type-check only. Without this, a stray `tsc` run
+    // emits .js next to each source file, and Vite's resolver prefers .js over .ts —
+    // silently serving stale code.
+    "noEmit": true,
     "skipLibCheck": true,
     "allowSyntheticDefaultImports": true,
     "forceConsistentCasingInFileNames": true,

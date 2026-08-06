@@ -9,7 +9,7 @@ import {LIQUIDATION_CURSOR_LOW, ORACLE_PRICE_SCALE} from "../../src/libraries/Co
 import {MAX_TICK} from "../../src/libraries/TickLib.sol";
 import {CleanversePoolGate} from "../../src/compliance/CleanversePoolGate.sol";
 import {BaseTest, MAX_TEST_AMOUNT} from "../BaseTest.sol";
-import {MockCleanversePool} from "./mocks/MockCleanversePool.sol";
+import {MockAPassValidator} from "./mocks/MockAPassValidator.sol";
 
 /// @notice Locks in the two claims the README makes about flash loans:
 ///
@@ -21,7 +21,7 @@ import {MockCleanversePool} from "./mocks/MockCleanversePool.sol";
 ///      addresses — then `flashLoan` reverts inside the token itself before the callback ever runs. The
 ///      market's gate becomes belt-and-suspenders; the token is the belt.
 contract FlashLoanSurfaceTest is BaseTest {
-    MockCleanversePool internal pool;
+    MockAPassValidator internal validator;
     CleanversePoolGate internal gate;
     Market internal gatedMarket;
     Offer internal borrowerOffer;
@@ -29,8 +29,9 @@ contract FlashLoanSurfaceTest is BaseTest {
     function setUp() public override {
         super.setUp();
 
-        pool = new MockCleanversePool();
-        gate = new CleanversePoolGate(pool);
+        validator = new MockAPassValidator();
+        gate = new CleanversePoolGate(validator, address(this));
+        validator.setRegistered(address(gate), true);
 
         gatedMarket.loanToken = address(loanToken);
         gatedMarket.maturity = vm.getBlockTimestamp() + 100;

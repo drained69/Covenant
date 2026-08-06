@@ -1,0 +1,62 @@
+======= 1/5: Covenant core =======
+Estimated total gas used for script: 7033036
+
+Estimated amount required: 0.717369672 ETH
+
+==========================
+
+
+==========================
+
+ONCHAIN EXECUTION COMPLETE & SUCCESSFUL.
+
+Transactions saved to: /Users/uba/projects/Covenant/broadcast/DeployCovenant.s.sol/10143/run-latest.json
+
+Sensitive values saved to: /Users/uba/projects/Covenant/cache/DeployCovenant.s.sol/10143/run-latest.json
+
+core=0xcdc06aae7617c3b6f44cc1f2a9a7163252d8a797
+======= 2/5: Test tokens (USDC + WBTC) =======
+No files changed, compilation skipped
+Error: Multiple contracts in the target path. Please specify the contract name with `--tc ContractName`
+==========================
+
+ONCHAIN EXECUTION COMPLETE & SUCCESSFUL.
+
+Transactions saved to: /Users/uba/projects/Covenant/broadcast/DeployTestTokens.s.sol/10143/run-latest.json
+
+Sensitive values saved to: /Users/uba/projects/Covenant/cache/DeployTestTokens.s.sol/10143/run-latest.json
+
+usdc=0x7dbe32f1e1d3db45123f60ec5a79312863a7e279
+wbtc=0x088b748e05b85af8ad2ee3c538a517f3eb1ce2ad
+======= 3/5: BtcUsdOracle (owner-push, no Chainlink on Monad) =======
+==========================
+
+ONCHAIN EXECUTION COMPLETE & SUCCESSFUL.
+
+Transactions saved to: /Users/uba/projects/Covenant/broadcast/DeployBtcUsdOracle.s.sol/10143/run-latest.json
+
+Sensitive values saved to: /Users/uba/projects/Covenant/cache/DeployBtcUsdOracle.s.sol/10143/run-latest.json
+
+oracle=0x41244829bb01950e17d5ede55b720a6417c87313
+0x41244829bb01950e17d5ede55b720a6417c87313
+======= 4/5: CleanversePoolGate + whitelist =======
+==========================
+
+ONCHAIN EXECUTION COMPLETE & SUCCESSFUL.
+
+Transactions saved to: /Users/uba/projects/Covenant/broadcast/DeployCleanverseGate.s.sol/10143/run-latest.json
+
+Sensitive values saved to: /Users/uba/projects/Covenant/cache/DeployCleanverseGate.s.sol/10143/run-latest.json
+
+gate=0xbbd1f4f83bc8d87ff808778d09cfdd1e17d17985
+======= 5/5: Create market bound to CleanversePoolGate =======
+==========================
+
+ONCHAIN EXECUTION COMPLETE & SUCCESSFUL.
+
+Transactions saved to: /Users/uba/projects/Covenant/broadcast/CreateMarket.s.sol/10143/run-latest.json
+
+Sensitive values saved to: /Users/uba/projects/Covenant/cache/CreateMarket.s.sol/10143/run-latest.json
+
+market_tx=0xb80c5c2b00eebcd46fefd46a3da34b4afeaae04cfbc762fbde0a8c8a9cc36b01
+market_id=0x831f8a2786166a61b98d329ad9976e6d3ca3096c89cab299bad1c0c3efb635ef

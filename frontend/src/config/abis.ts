@@ -90,6 +90,50 @@ export const COVENANT_ABI = [
       { name: "takerCallback",           type: "address" },
       { name: "takerCallbackData",       type: "bytes" },
     ], outputs: [{ type: "uint256" }, { type: "uint256" }] },
+
+  // Custom errors. viem needs these in the ABI to decode a revert into a name —
+  // without them a failed fillOffer surfaces only a raw 4-byte selector.
+  { type: "error", name: "TakerUnauthorized",        inputs: [] },
+  { type: "error", name: "MarketLossFactorMaxedOut", inputs: [] },
+  { type: "error", name: "MultipleNonZero",          inputs: [] },
+  { type: "error", name: "TickNotAccessible",        inputs: [] },
+  { type: "error", name: "TickOutOfRange",           inputs: [] },
+  { type: "error", name: "OfferNotStarted",          inputs: [] },
+  { type: "error", name: "OfferExpired",             inputs: [] },
+  { type: "error", name: "SelfTake",                 inputs: [] },
+  { type: "error", name: "NotaryUnauthorized",       inputs: [] },
+  { type: "error", name: "NotaryFail",               inputs: [] },
+  { type: "error", name: "SellerIsLiquidatable",     inputs: [] },
+  { type: "error", name: "UnhealthyBorrower",        inputs: [] },
+  { type: "error", name: "MarketNotCreated",         inputs: [] },
+  { type: "error", name: "MissingComplianceGate",    inputs: [] },
+  { type: "error", name: "GateNotApproved",          inputs: [{ name: "gate", type: "address" }] },
+  { type: "error", name: "LenderIneligible",         inputs: [] },
+  { type: "error", name: "BorrowerIneligible",       inputs: [] },
+  { type: "error", name: "ConsumedUnits",            inputs: [] },
+  { type: "error", name: "ConsumedAssets",           inputs: [] },
+  { type: "error", name: "AlreadyConsumed",          inputs: [] },
+  { type: "error", name: "InconsistentInput",        inputs: [] },
+  { type: "error", name: "CannotIncreaseDebtPostMaturity", inputs: [] },
+  { type: "error", name: "MakerCreditOrDebtIncreased",     inputs: [] },
+  { type: "error", name: "TransferFromReturnedFalse", inputs: [] },
+  { type: "error", name: "TransferReturnedFalse",     inputs: [] },
+  { type: "error", name: "Unauthorized",              inputs: [] },
+  // EcrecoverNotary — reached through fillOffer's isNotarized call.
+  { type: "error", name: "InvalidProof",              inputs: [] },
+  { type: "error", name: "InvalidSignature",          inputs: [] },
+  { type: "error", name: "RootCanceled",              inputs: [] },
+  { type: "error", name: "NotCovenant",               inputs: [] },
+  { type: "error", name: "LeafIndexOutOfRange",       inputs: [] },
+  // BtcUsdOracle — reached through fillOffer's health check (isHealthy → IOracle.price()).
+  // Without these, an expired or unset price surfaces as a bare selector (0x19abf40e).
+  { type: "error", name: "StalePrice",                inputs: [] },
+  { type: "error", name: "PriceUnset",                inputs: [] },
+  // CleanversePoolGate / BtcUsdOracle ownership guards.
+  { type: "error", name: "NotOwner",                  inputs: [] },
+  { type: "error", name: "ZeroAddress",               inputs: [] },
+  { type: "error", name: "ZeroValidator",             inputs: [] },
+  { type: "error", name: "ZeroOwner",                 inputs: [] },
 ] as const;
 
 export const ERC20_ABI = [
@@ -121,8 +165,27 @@ export const CHAINLINK_FEED_ABI = [
   { type: "function", stateMutability: "view", name: "description", inputs: [], outputs: [{ type: "string" }] },
 ] as const;
 
-export const CLEANVERSE_POOL_ABI = [
-  { type: "function", stateMutability: "view", name: "isRegistered", inputs: [], outputs: [{ type: "bool" }] },
-  { type: "function", stateMutability: "view", name: "paused",       inputs: [], outputs: [{ type: "bool" }] },
-  { type: "function", stateMutability: "view", name: "verify",       inputs: [{ name: "user", type: "address" }], outputs: [{ type: "bool" }] },
+// CCP V2 — IAPassComplianceValidator. The validator is a single global contract per chain that
+// indexes pools by address. Every gate/wrapper on Covenant asks the validator about *itself*:
+//   validator.isRegistered(address(gate))
+//   validator.complianceVerify(address(gate), user)
+export const CLEANVERSE_VALIDATOR_ABI = [
+  { type: "function", stateMutability: "view", name: "isRegistered",
+    inputs: [{ name: "poolAddress", type: "address" }],
+    outputs: [{ type: "bool" }] },
+  { type: "function", stateMutability: "view", name: "complianceVerify",
+    inputs: [{ name: "poolAddress", type: "address" }, { name: "userAddress", type: "address" }],
+    outputs: [{ type: "bool" }] },
+  { type: "function", stateMutability: "view", name: "getRulesV2",
+    inputs: [{ name: "poolAddress", type: "address" }],
+    outputs: [{ type: "tuple[]", components: [
+      { name: "allowedGroup",     type: "bytes2"  },
+      { name: "allowedSubGroup",  type: "bytes2"  },
+      { name: "minTier",          type: "uint8"   },
+      { name: "minSubTier",       type: "uint8"   },
+      { name: "poolCountryBitmap",type: "uint256" },
+    ] }] },
 ] as const;
+
+/** @deprecated Kept as an alias so existing pages don't break during the CCP V2 rename. */
+export const CLEANVERSE_POOL_ABI = CLEANVERSE_VALIDATOR_ABI;

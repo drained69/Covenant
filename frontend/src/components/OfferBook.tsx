@@ -1,67 +1,170 @@
 import { useNavigate, useSearchParams } from "react-router-dom";
-import { DEMO_OFFERS } from "../config/demoOffers";
-import { fmtUnits } from "../lib/format";
+import { useOffers } from "../hooks/useOffers";
+import { fmtUnits, shortAddr } from "../lib/format";
+import { IconCheck, IconArrowRight, IconDocument } from "./icons";
 
 /**
  * Order book for the current market. Clicking an offer sets `?offer=<id>&tab=take` on the URL,
- * which the ActionPanel reads to prefill the Take offer flow. There's no on-chain source of
- * truth for offers (they're signed off-chain and served over any medium), so we ship a small
- * seed list for the demo — replace with a marketplace fetch when there's a real backend.
+ * which the ActionPanel reads to prefill the Take offer flow. Offers are fetched live from the
+ * API server (with real EIP-712 signatures), falling back to static placeholders when offline.
  */
 export function OfferBook() {
   const [params] = useSearchParams();
   const navigate = useNavigate();
   const selected = params.get("offer");
+  const { offers, live } = useOffers();
 
   function pick(id: string) {
     const next = new URLSearchParams(params);
     next.set("offer", id);
     next.set("tab", "take");
     navigate(`?${next.toString()}`, { replace: false });
-    // scroll the actions panel into view for the user
-    setTimeout(() => document.getElementById("actions-panel")?.scrollIntoView({ behavior: "smooth", block: "start" }), 50);
+    setTimeout(
+      () =>
+        document
+          .getElementById("actions-panel")
+          ?.scrollIntoView({ behavior: "smooth", block: "start" }),
+      50,
+    );
   }
 
   return (
-    <div className="card">
+    <div className="card overflow-hidden">
       <div className="card-header">
         <div>
           <div className="card-title">Order book</div>
-          <div className="text-xs text-subtle mt-0.5">Signed off-chain, filled on-chain. Click a row to take it.</div>
+          <div className="text-body-sm text-subtle mt-0.5">
+            Signed off-chain, filled on-chain. Select a row to take it.
+          </div>
         </div>
-        <span className="badge-info">{DEMO_OFFERS.length} live</span>
+        {/*
+          Was `badge-ok` / `badge-warn` around "{n} signed" / "{n} static". Two
+          issues. Green-vs-amber on a count reads as a threshold being crossed,
+          when what's actually being reported is *provenance* — where the offers
+          came from. And "2 static" is a state the reader has no way to interpret
+          without knowing the fallback exists.
+
+          Live is the unremarkable case, so it gets the neutral treatment plus a
+          status dot; the fallback keeps amber, because that one genuinely is a
+          caution — those signatures will not settle.
+        */}
+        <span className={live ? "badge-neutral" : "badge-warn"} title={live ? undefined : "The offer API is unreachable. These placeholder offers cannot be filled on-chain."}>
+          <span className={live ? "status-dot-ok" : "status-dot-warn"} />
+          {live ? "Live signatures" : "Offline placeholders"}
+        </span>
       </div>
-      <div className="divide-y divide-line">
-        {DEMO_OFFERS.map((o) => {
-          const isSelected = selected === o.id;
-          return (
-            <button
-              key={o.id}
-              onClick={() => pick(o.id)}
-              className={`w-full text-left px-5 py-4 flex items-center gap-4 transition
-                ${isSelected ? "bg-brand-500/8" : "hover:bg-white/5"}`}
-            >
-              <span className={o.side === "lend" ? "badge-info" : "badge-warn"}>
-                {o.side === "lend" ? "LEND" : "BORROW"}
-              </span>
-              <div className="flex-1 min-w-0">
-                <div className="text-sm font-semibold text-slate-100 truncate">{o.label}</div>
-                <div className="text-[11px] font-mono text-subtle truncate">
-                  maker {o.maker.slice(0, 6)}…{o.maker.slice(-4)} · expires {new Date(o.expiry * 1000).toLocaleTimeString()}
+
+      {offers.length === 0 ? (
+        // There was no empty branch — an empty book rendered a header over a
+        // hairline and nothing else.
+        <div className="empty-state">
+          <div className="empty-state-icon">
+            <IconDocument className="w-5 h-5" />
+          </div>
+          <div className="empty-state-title">No open offers</div>
+          <p className="empty-state-body">
+            Nothing is quoted on this market right now. Makers publish signed offers off-chain.
+          </p>
+        </div>
+      ) : (
+        <div className="divide-y divide-line">
+          {offers.map((o) => {
+            const isSelected = selected === o.id;
+            return (
+              <button
+                key={o.id}
+                onClick={() => pick(o.id)}
+                aria-pressed={isSelected}
+                /*
+                  `bg-brand-500/8` is not a Tailwind step — the opacity scale
+                  jumps 5 → 10, so `/8` was silently dropped and the selected row
+                  rendered identically to an unselected one until hovered. That is
+                  the whole selection affordance on this control.
+
+                  Now: an arbitrary-value wash that actually compiles, plus an
+                  inset left rule. The rule is what carries the state at a glance
+                  down a column of rows — a 6% fill difference does not.
+                */
+                className={`relative w-full text-left px-5 py-4 flex items-center gap-4
+                            transition-colors duration-150
+                            focus-visible:outline-none focus-visible:bg-white/[0.04]
+                            ${isSelected ? "bg-brand-500/[0.07]" : "hover:bg-white/[0.03]"}`}
+              >
+                {isSelected && (
+                  <span
+                    className="absolute left-0 top-0 bottom-0 w-0.5 bg-brand-400"
+                    aria-hidden="true"
+                  />
+                )}
+
+                {/*
+                  Was `badge-info` for lend and `badge-warn` for borrow. Brand
+                  cyan is the interactive-affordance colour, so LEND looked
+                  clickable in a way BORROW did not; and amber is the app's
+                  caution tone, so BORROW read as a warning about the offer
+                  rather than as its direction. These are two symmetric sides of
+                  a book, so they get the two directional tones the rest of the
+                  app already uses for up/down.
+                */}
+                <span
+                  className={`${o.side === "lend" ? "badge-ok" : "badge-bad"} flex-shrink-0 w-[74px] justify-center`}
+                >
+                  {o.side === "lend" ? "Lend" : "Borrow"}
+                </span>
+
+                <div className="flex-1 min-w-0">
+                  {/*
+                    `label` from the API packs side, size, and price into one
+                    string ("Fixed-rate lend · 100,000 units @ par") — all three
+                    of which are already columns on this row, so every row
+                    printed its own contents twice. The rate is what an order
+                    book is for, and it was the one field never rendered.
+                  */}
+                  <div className="text-body-sm font-semibold text-slate-100 tabular-nums">
+                    {o.rateBps === 0 ? "Par" : `${(o.rateBps / 100).toFixed(2)}%`}
+                    <span className="ml-1.5 font-normal text-subtle">
+                      {o.rateBps === 0 ? "· 1.0000" : "fixed"}
+                    </span>
+                  </div>
+                  <div className="text-micro font-mono text-subtle truncate mt-0.5">
+                    {shortAddr(o.maker)}
+                  </div>
                 </div>
-              </div>
-              <div className="text-right">
-                <div className="text-sm font-mono tabular-nums text-slate-100">
-                  {fmtUnits(BigInt(o.maxUnits), 6)} <span className="text-[10px] text-subtle">units</span>
+
+                <div className="text-right flex-shrink-0">
+                  <div className="text-body-sm font-mono tabular-nums text-slate-100">
+                    {fmtUnits(BigInt(o.maxUnits), 6)}
+                    <span className="ml-1 text-subtle font-sans">units</span>
+                  </div>
+                  {/*
+                    Was `stat-label` (uppercase 11px muted) reading "Selected ✓"
+                    or "Take →" — a figure label used for an action, with the
+                    tick and arrow as literal characters in the body font, so
+                    they sat at a different weight and baseline than the stroked
+                    icons doing the same job elsewhere.
+                  */}
+                  <div
+                    className={`mt-1 inline-flex items-center gap-1.5 text-micro font-semibold
+                                ${isSelected ? "text-brand-300" : "text-subtle"}`}
+                  >
+                    {isSelected ? (
+                      <>
+                        <IconCheck className="w-3 h-3" />
+                        Selected
+                      </>
+                    ) : (
+                      <>
+                        Take
+                        <IconArrowRight className="w-3 h-3" />
+                      </>
+                    )}
+                  </div>
                 </div>
-                <div className="text-[10px] tracking-widest uppercase text-brand-300 font-semibold">
-                  {isSelected ? "Selected ✓" : "Take →"}
-                </div>
-              </div>
-            </button>
-          );
-        })}
-      </div>
+              </button>
+            );
+          })}
+        </div>
+      )}
     </div>
   );
 }

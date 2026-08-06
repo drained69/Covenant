@@ -1,66 +1,160 @@
 import { Link } from "react-router-dom";
+import { IconCheck, IconX, IconArrowRight, IconShield } from "../components/icons";
 
 /**
  * Plain-language walkthrough of the whole stack. Mirrors Explanation.md but for people who prefer
- * clicking to reading — a hackathon-friendly explainer. Fully static, no on-chain reads.
+ * clicking to reading. Fully static, no on-chain reads.
  *
- * Styled to match the app's teal-glow design language: numbered step indicators for the offer flow,
- * card layout for each layer, a decorative gradient "trust curve" chart at the end.
+ * Design note: this page previously described itself as following the app's "teal-glow design
+ * language," which is the opposite of what the theme actually does — the theme builds depth from
+ * elevation (borders + shadow), and reserves brand cyan for interactive affordance. Glow on static
+ * panels is the single loudest crypto-dashboard tell, so the accent here is used only to mark the
+ * two cards that carry the page's actual argument.
  */
 export function HowItWorks() {
   return (
-    <section className="max-w-6xl mx-auto px-6 py-10 space-y-10">
-      {/* ── Hero ─────────────────────────────────────────────────────── */}
-      <header className="text-center space-y-3">
-        <div className="badge-info inline-flex">Covenant · compliance-native credit</div>
-        <h1 className="text-3xl md:text-4xl font-bold text-slate-50 tracking-tight">How Covenant works</h1>
-        <p className="max-w-2xl mx-auto text-sm text-muted">
+    <section className="shell py-12 lg:py-16 space-y-16">
+      {/* ── Page header ──────────────────────────────────────────────────
+          Was `space-y-3` with a centred `badge-info` above the h1. Two problems:
+          a badge is a status label, and "Covenant · compliance-native credit" is
+          a tagline, so it was a badge doing a kicker's job; and centring a
+          full-width paragraph under a centred h1 leaves the reader's eye with no
+          fixed left edge to return to on each line. Left-aligned with an
+          uppercase eyebrow reads as a document, which is what this page is. */}
+      <header className="max-w-3xl">
+        <div className="text-micro font-semibold uppercase text-brand-300">
+          Protocol overview
+        </div>
+        <h1 className="mt-3 text-h1 md:text-display text-slate-50">How Covenant works</h1>
+        <p className="mt-4 text-body-lg text-muted">
           Fixed-rate credit for regulated institutions. The whole system in one page — the offer
-          flow, the compliance gate, and the wrapped-A-token layer that closes the flash-loan surface.
+          flow, the compliance gate, and the wrapped-A-token layer that closes the flash-loan
+          surface.
         </p>
       </header>
 
-      {/* ── Step indicator: the offer lifecycle ──────────────────────── */}
-      <StepIndicator
-        steps={[
-          { n: 1, label: "Lender signs offer",   active: true  },
-          { n: 2, label: "Taker fills on-chain", active: false },
-          { n: 3, label: "Compliance verified",  active: false },
-        ]}
-      />
+      {/* ── The offer lifecycle ────────────────────────────────────────── */}
+      <section className="space-y-6">
+        <SectionTitle
+          title="The offer lifecycle"
+          subtitle="Three steps from a signed message to a settled position."
+        />
 
-      {/* ── Three cards: the offer's journey ─────────────────────────── */}
-      <div className="grid md:grid-cols-3 gap-5">
-        <StepCard
-          n={1}
-          title="Sign off-chain"
-          body="A lender signs an EIP-712 Offer struct — market, side, price, expiry, max size — and publishes the signature. Zero gas until someone fills."
-          hint="offchain/sign_offer.js"
-        />
-        <StepCard
-          n={2}
-          title="Fill on-chain"
-          body={
-            <>
-              A taker pastes the signed JSON into the{" "}
-              <Link to="/markets" className="link">Take offer</Link> tab and calls <code className="text-brand-300">fillOffer(...)</code>.
-              The engine ratifies the signature via the offer's notary.
-            </>
-          }
-          hint="src/Covenant.sol · src/notaries/EcrecoverNotary.sol"
-        />
-        <StepCard
-          n={3}
-          title="Gate fires in-tx"
-          body="Before positions update, the market gate does isRegistered → paused → verify(wallet) against a Cleanverse compliance pool. Any failure denies, in the same transaction."
-          hint="src/compliance/CleanversePoolGate.sol"
-          glow
-        />
-      </div>
+        {/* The StepIndicator marked step 1 `active: true` and steps 2-3 inactive,
+            which reads as "you are on step 1 of a wizard." Nothing on this page
+            is interactive and no step is in progress — it's an explanation of a
+            sequence, not a form. The indicator is gone; the numbered cards below
+            already carry the ordering, and they carry it with the detail that
+            makes the ordering worth showing. */}
+        <div className="grid md:grid-cols-3 gap-5">
+          <StepCard
+            n={1}
+            title="Sign off-chain"
+            body="A lender signs an EIP-712 Offer struct — market, side, price, expiry, max size — and publishes the signature. Zero gas until someone fills."
+            hint="offchain/sign_offer.js"
+          />
+          <StepCard
+            n={2}
+            title="Fill on-chain"
+            body={
+              <>
+                A taker pastes the signed JSON into the{" "}
+                <Link to="/markets" className="link">Take offer</Link> tab and calls{" "}
+                <code className="code-inline">fillOffer(...)</code>. The engine ratifies the
+                signature via the offer's notary.
+              </>
+            }
+            hint="src/Covenant.sol · src/notaries/EcrecoverNotary.sol"
+          />
+          <StepCard
+            n={3}
+            title="Gate fires in-tx"
+            body={
+              <>
+                Before positions update, the market gate runs{" "}
+                <code className="code-inline">isRegistered()</code> →{" "}
+                <code className="code-inline">complianceVerify()</code> against the CVI Compliance
+                Validator (CCP V2). Any failure reverts the transaction. A-Pass credentials are{" "}
+                <strong>reusable</strong> — a wallet that passed once needs no re-verification.
+              </>
+            }
+            hint="src/compliance/CleanversePoolGate.sol"
+            emphasized
+          />
+        </div>
+      </section>
 
-      {/* ── The four layers ──────────────────────────────────────────── */}
-      <section className="space-y-4">
-        <SectionTitle title="The four layers" subtitle="Each layer talks to the one below through a narrow, view-only interface." />
+      {/* ── Getting verified ───────────────────────────────────────────────
+          Added because the page described the gate's *check* in detail but never
+          said how a wallet comes to pass it — the reader could follow the whole
+          offer flow and still not know what to do about step 3 denying them.
+          The load-bearing fact is that the credential is issued once and reused,
+          which is also what the Get verified tab now reflects. */}
+      <section className="space-y-6">
+        <SectionTitle
+          title="Getting verified"
+          subtitle="The gate checks a credential; it does not issue one. An A-Pass is issued once per wallet and then reused on every fill."
+        />
+
+        <div className="grid md:grid-cols-3 gap-5">
+          <StepCard
+            n={1}
+            title="Submit intake once"
+            body={
+              <>
+                Identity details and a document go to Cleanverse from the{" "}
+                <Link to="/compliance?tab=register" className="link">Get verified</Link> tab.
+                Nothing about this step is on-chain.
+              </>
+            }
+            hint="offchain/cleanverse_client.py"
+          />
+          <StepCard
+            n={2}
+            title="A-Pass is issued"
+            body="Cleanverse binds the credential to the wallet address. From then on complianceVerify(pool, wallet) returns true without any further action from the holder."
+            hint="IAPassComplianceValidator"
+            emphasized
+          />
+          <StepCard
+            n={3}
+            title="Reused on every fill"
+            body={
+              <>
+                Every subsequent fill, transfer, and flash-loan receipt re-reads the same
+                credential. Re-running intake issues nothing new — the{" "}
+                <Link to="/compliance" className="link">My status</Link> tab shows the live verdict
+                instead.
+              </>
+            }
+            hint="frontend/src/hooks/useCompliance.ts"
+          />
+        </div>
+
+        <div className="card p-6 flex items-start gap-4 border-brand-500/25">
+          <div className="flex-shrink-0 w-9 h-9 rounded-lg flex items-center justify-center bg-brand-500/10 text-brand-300">
+            <IconShield className="w-4 h-4" />
+          </div>
+          <div className="space-y-1.5 min-w-0">
+            <div className="text-body font-semibold text-slate-100">
+              Two conditions, both checked live
+            </div>
+            <p className="text-body-sm text-slate-300 leading-relaxed">
+              Holding an A-Pass is only half the gate. The pool itself must also be registered with
+              the validator — <code className="code-inline">isRegistered(pool)</code> — so a
+              verified wallet can still be denied on an unregistered market. Neither result is
+              cached on-chain; both are staticcalls made at the moment of the fill.
+            </p>
+          </div>
+        </div>
+      </section>
+
+      {/* ── The four layers ──────────────────────────────────────────────── */}
+      <section className="space-y-6">
+        <SectionTitle
+          title="The four layers"
+          subtitle="Each layer talks to the one below through a narrow, view-only interface."
+        />
         <div className="grid md:grid-cols-2 gap-5">
           <LayerCard
             index="01"
@@ -84,121 +178,204 @@ export function HowItWorks() {
             index="04"
             title="Compliance surface"
             path="src/compliance/"
-            body="Gates decide 'may this account open a position?'; WrappedAToken decides 'may this account receive these tokens?'. Same isRegistered → paused → verify staticcall, same 150k gas cap, same fail-closed rule."
-            glow
+            body="Gates decide 'may this account open a position?'; WrappedAToken decides 'may this account receive these tokens?'. Same isRegistered + complianceVerify staticcall against the CCP V2 validator, same 150k gas cap, same fail-closed rule."
+            emphasized
           />
         </div>
       </section>
 
-      {/* ── The flash-loan story ──────────────────────────────────────── */}
-      <section className="space-y-4">
+      {/* ── The flash-loan story ──────────────────────────────────────────── */}
+      <section className="space-y-6">
         <SectionTitle
           title="Closing the flash-loan surface"
           subtitle="The one thing a per-market gate can't close is flashLoan — it lives on the core, not per-market. The fix is to move the check to the token."
         />
-        <div className="card p-6 space-y-5">
-          <div className="grid md:grid-cols-2 gap-6">
-            <div className="space-y-2">
+
+        {/*
+          The before/after pair was two `space-y-2` columns inside one card, with
+          the verdicts set in `stat-value-down` and `stat-value-up`. Those
+          primitives are for *figures* — 20px semibold tabular — so "Open" and
+          "Closed" arrived looking like numeric readouts, and red/green on a word
+          reads as gain/loss rather than open/closed.
+
+          It's now two sibling panels: the comparison is the point, so the two
+          states should be visibly separate surfaces rather than two halves of one.
+          The verdict is a badge (which is what a two-state label is), and each
+          panel carries the border tint of its own state.
+        */}
+        <div className="grid md:grid-cols-2 gap-5">
+          <div className="card p-6 space-y-4 border-bad/25">
+            <div className="flex items-center justify-between gap-3">
               <div className="stat-label">Without WrappedAToken</div>
-              <div className="stat-value-down">Open</div>
-              <p className="text-sm text-muted">
-                <code className="text-slate-200">covenant.flashLoan([USDC], amt, callback)</code> succeeds for any wallet.
-                A non-compliant callback receives compliant-market liquidity for a single transaction.
-              </p>
+              <span className="badge-bad">
+                <IconX className="w-3 h-3" />
+                Open
+              </span>
             </div>
-            <div className="space-y-2">
+            <p className="text-body-sm text-slate-300 leading-relaxed">
+              <code className="code-inline">covenant.flashLoan([USDC], amt, callback)</code>{" "}
+              succeeds for any wallet. A non-compliant callback receives compliant-market
+              liquidity for a single transaction.
+            </p>
+          </div>
+
+          <div className="card p-6 space-y-4 border-ok/25">
+            <div className="flex items-center justify-between gap-3">
               <div className="stat-label">With WrappedAToken</div>
-              <div className="stat-value-up">Closed</div>
-              <p className="text-sm text-muted">
-                <code className="text-slate-200">safeTransfer(waUSDC → callback)</code> reverts with{" "}
-                <code className="text-brand-300">RecipientNotCompliant</code> inside the token, before the callback runs.
-                Proven by <span className="font-mono text-slate-200">WrappedATokenFlashLoanTest</span>.
-              </p>
+              <span className="badge-ok">
+                <IconCheck className="w-3 h-3" />
+                Closed
+              </span>
+            </div>
+            <p className="text-body-sm text-slate-300 leading-relaxed">
+              <code className="code-inline">safeTransfer(waUSDC → callback)</code> reverts with{" "}
+              <code className="code-inline">RecipientNotCompliant</code> inside the token, before
+              the callback runs.
+            </p>
+            <div className="pt-3 border-t border-line text-micro font-mono text-subtle">
+              Proven by WrappedATokenFlashLoanTest
             </div>
           </div>
-          {/* Decorative "trust curve" chart in the reference style. */}
-          <div className="relative h-40 rounded-xl border border-line bg-ink-900/40 overflow-hidden">
-            <svg viewBox="0 0 400 120" preserveAspectRatio="none" className="absolute inset-0 w-full h-full">
-              <defs>
-                <linearGradient id="trustFill" x1="0" y1="0" x2="0" y2="1">
-                  <stop offset="0%"  stopColor="#22d3c2" stopOpacity="0.45" />
-                  <stop offset="100%" stopColor="#22d3c2" stopOpacity="0" />
-                </linearGradient>
-              </defs>
-              <path
-                d="M0 110 C 60 100, 120 70, 200 45 S 340 20, 400 15 L 400 120 L 0 120 Z"
-                fill="url(#trustFill)"
-              />
-              <path
-                d="M0 110 C 60 100, 120 70, 200 45 S 340 20, 400 15"
-                fill="none" stroke="#4feadb" strokeWidth="1.5"
-              />
-            </svg>
-            <div className="absolute top-3 left-4 text-[11px] uppercase tracking-widest text-muted">Coverage over exposure surface</div>
-            <div className="absolute bottom-3 right-4 text-[11px] uppercase tracking-widest text-brand-300">gate + token = 100%</div>
+        </div>
+
+        {/*
+          Deleted here: a 400×120 SVG area chart labelled "Coverage over exposure
+          surface" rising to "gate + token = 100%".
+
+          It plotted nothing. The curve was a hand-authored bezier, both axes were
+          unlabelled and unitless, and no value in it came from the protocol — a
+          chart shape used as decoration. That is the exact move that separates a
+          crypto dashboard from Stripe or Modern Treasury: in enterprise software a
+          chart is a promise that you are looking at data, and an invented curve on
+          a compliance page spends the reader's trust on nothing. It also carried
+          the page's three hardcoded hexes (#22d3c2 twice, #4feadb), none of which
+          were palette tokens.
+
+          The claim it gestured at — that the two mechanisms together leave no gap —
+          is worth stating, so it's stated as a coverage table where each row is
+          checkable against the code.
+        */}
+        <div className="card overflow-hidden">
+          <div className="card-header">
+            <div className="card-title">Where each check applies</div>
+            <span className="text-micro font-semibold uppercase text-muted">
+              Full exposure surface
+            </span>
           </div>
+          <table className="w-full text-body-sm">
+            <thead>
+              <tr className="border-b border-line">
+                <th className="text-left font-semibold text-micro uppercase text-muted px-5 py-3">
+                  Entry path
+                </th>
+                <th className="text-left font-semibold text-micro uppercase text-muted px-5 py-3">
+                  Enforced by
+                </th>
+                <th className="text-right font-semibold text-micro uppercase text-muted px-5 py-3">
+                  Covered
+                </th>
+              </tr>
+            </thead>
+            <tbody>
+              {COVERAGE.map((row) => (
+                <tr key={row.path} className="border-b border-line last:border-0">
+                  <td className="px-5 py-3.5 text-slate-100">{row.path}</td>
+                  <td className="px-5 py-3.5">
+                    <code className="code-inline">{row.by}</code>
+                  </td>
+                  <td className="px-5 py-3.5 text-right">
+                    <IconCheck className="w-4 h-4 inline-block text-ok" />
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
         </div>
       </section>
 
+      {/* ── Close ─────────────────────────────────────────────────────────
+          The page previously just stopped after the decorative chart, leaving
+          the reader at a dead end on a page whose whole job is to send them to
+          the markets. */}
+      <div className="card p-6 lg:p-8 flex flex-col sm:flex-row sm:items-center justify-between gap-5">
+        <div>
+          <div className="text-h3 text-slate-50">See it settle</div>
+          <p className="mt-1.5 text-body-sm text-muted max-w-md">
+            Markets are live on Monad Testnet. Fills run the exact path described above.
+          </p>
+        </div>
+        <Link to="/markets" className="btn-primary flex-shrink-0">
+          Browse markets
+          <IconArrowRight className="w-4 h-4" />
+        </Link>
+      </div>
     </section>
   );
 }
 
+const COVERAGE = [
+  { path: "Open a position (fill an offer)", by: "market gate" },
+  { path: "Receive A-tokens by transfer", by: "WrappedAToken" },
+  { path: "Receive A-tokens via flashLoan", by: "WrappedAToken" },
+  { path: "Rebind a market's gate after creation", by: "market id = keccak" },
+];
+
 /* ── primitives ─────────────────────────────────────────────────────── */
 
-function StepIndicator({ steps }: { steps: { n: number; label: string; active: boolean }[] }) {
-  return (
-    <div className="step-row">
-      {steps.map((s, i) => (
-        <div key={s.n} className="flex items-center gap-2">
-          <div className="flex flex-col items-center gap-1.5">
-            <div className={s.active ? "step-dot-active" : "step-dot"}>{s.n}</div>
-            <span className={s.active ? "step-label-active" : "step-label"}>{s.label}</span>
-          </div>
-          {i < steps.length - 1 && <div className="step-connector" />}
-        </div>
-      ))}
-    </div>
-  );
-}
-
 function StepCard(
-  { n, title, body, hint, glow }: { n: number; title: string; body: React.ReactNode; hint: string; glow?: boolean }
+  { n, title, body, hint, emphasized }:
+  { n: number; title: string; body: React.ReactNode; hint: string; emphasized?: boolean }
 ) {
   return (
-    <div className={glow ? "card-glow p-5 space-y-3" : "card p-5 space-y-3"}>
+    // Was `card-glow` for the third card. Glow says "this is lit"; what's
+    // actually meant is "this is the load-bearing step," which is a border-and-
+    // tint job. Same information, no bloom.
+    <div className={`card p-5 flex flex-col gap-3 ${emphasized ? "border-brand-500/30" : ""}`}>
       <div className="flex items-center gap-3">
-        <div className={n === 3 ? "step-dot-active" : "step-dot-done"}>{n}</div>
+        {/* All three dots were `step-dot-done`/`step-dot-active` — states from
+            the wizard indicator that no longer exists. These are ordinals, so
+            they're set in mono tabular at a single weight. */}
+        <span
+          className={`flex-shrink-0 w-6 h-6 rounded-md flex items-center justify-center
+                      font-mono text-[10px] font-bold tabular-nums ${
+            emphasized ? "bg-brand-400 text-ink-950" : "bg-white/10 text-slate-300"
+          }`}
+        >
+          {String(n).padStart(2, "0")}
+        </span>
         <div className="card-title">{title}</div>
       </div>
-      <div className="text-sm text-slate-300 leading-relaxed">{body}</div>
-      <div className="stat-hint font-mono">{hint}</div>
+      <div className="text-body-sm text-slate-300 leading-relaxed flex-1">{body}</div>
+      <div className="pt-3 border-t border-line text-micro font-mono text-subtle break-words">
+        {hint}
+      </div>
     </div>
   );
 }
 
 function LayerCard(
-  { index, title, path, body, glow }: { index: string; title: string; path: string; body: string; glow?: boolean }
+  { index, title, path, body, emphasized }:
+  { index: string; title: string; path: string; body: string; emphasized?: boolean }
 ) {
   return (
-    <div className={glow ? "card-glow p-5 space-y-3" : "card p-5 space-y-3"}>
-      <div className="flex items-baseline justify-between">
-        <div className="flex items-baseline gap-3">
-          <span className="text-[11px] font-mono text-brand-300 tracking-widest">{index}</span>
-          <div className="card-title">{title}</div>
+    <div className={`card p-5 space-y-3 ${emphasized ? "border-brand-500/30" : ""}`}>
+      <div className="flex items-baseline justify-between gap-4">
+        <div className="flex items-baseline gap-3 min-w-0">
+          <span className="text-micro font-mono tabular-nums text-subtle">{index}</span>
+          <div className="card-title truncate">{title}</div>
         </div>
-        <span className="text-[10px] font-mono text-subtle">{path}</span>
+        <span className="text-micro font-mono text-subtle flex-shrink-0">{path}</span>
       </div>
-      <p className="text-sm text-slate-300 leading-relaxed">{body}</p>
+      <p className="text-body-sm text-slate-300 leading-relaxed">{body}</p>
     </div>
   );
 }
 
 function SectionTitle({ title, subtitle }: { title: string; subtitle: string }) {
   return (
-    <div className="space-y-1">
-      <h2 className="text-lg font-semibold text-slate-100">{title}</h2>
-      <p className="text-sm text-muted">{subtitle}</p>
+    <div className="max-w-2xl space-y-1.5">
+      <h2 className="text-h3 text-slate-50">{title}</h2>
+      <p className="text-body-sm text-muted leading-relaxed">{subtitle}</p>
     </div>
   );
 }

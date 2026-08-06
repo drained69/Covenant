@@ -6,38 +6,49 @@ import {Script, console} from "../lib/forge-std/src/Script.sol";
 import {Covenant} from "../src/Covenant.sol";
 import {Market, CollateralParams} from "../src/interfaces/ICovenant.sol";
 import {CleanversePoolGate} from "../src/compliance/CleanversePoolGate.sol";
-import {ICleanversePool} from "../src/compliance/interfaces/ICleanversePool.sol";
+// IAPassComplianceValidator is not used here directly — the gate is passed by address — but the
+// import is left as a docstring hint. Uncomment if the script starts constructing gates locally.
+// import {IAPassComplianceValidator} from "../src/compliance/interfaces/IAPassComplianceValidator.sol";
 import {BtcUsdOracle} from "../src/oracles/BtcUsdOracle.sol";
 import {LLTV_3, LIQUIDATION_CURSOR_LOW, maxLif} from "../src/libraries/ConstantsLib.sol";
 
 /// @notice Initializes an institutional credit market on Covenant bound to a Cleanverse compliance gate.
 ///
 /// Required Environment Variables:
-///   COVENANT_ADDRESS         — Address of the deployed Covenant core contract
-///   LOAN_TOKEN_ADDRESS       — Address of the loan token (e.g. TestUSDC)
-///   COLLATERAL_TOKEN_ADDRESS — Address of the collateral token (e.g. TestWBTC)
-///   ORACLE_ADDRESS           — Address of the price oracle for collateral/loan pair
-///   GATE_ADDRESS             — Address of the CleanversePoolGate or CovenantGate
-///   MATURITY_DAYS            — Number of days until market maturity (default: 90)
+///   COVENANT_CORE_ADDRESS      — Address of the deployed Covenant core contract
+///   TEST_USDC_ADDRESS          — Address of the loan token (e.g. TestUSDC)
+///   TEST_WBTC_ADDRESS          — Address of the collateral token (e.g. TestWBTC)
+///   COVENANT_ORACLE_ADDRESS    — Address of the price oracle for collateral/loan pair
+///   COVENANT_GATE_ADDRESS      — Address of the CleanversePoolGate or CovenantGate
+///   MATURITY_TIMESTAMP         — Absolute unix maturity. Preferred: the market id is content-addressed,
+///                                so a `block.timestamp`-relative maturity yields a DIFFERENT id on every
+///                                run and silently addresses a market nobody has liquidity in.
+///   MATURITY_DAYS              — Fallback if MATURITY_TIMESTAMP is unset (default: 90)
 ///
 /// Usage:
 ///   forge script script/CreateMarket.s.sol --rpc-url $RPC_URL --broadcast --legacy
 contract CreateMarketScript is Script {
     function run() external returns (bytes32 marketId) {
-        uint256 pk = vm.envOr("PRIVATE_KEY", uint256(0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80));
-        address covenantAddr = vm.envOr("COVENANT_ADDRESS", address(0xe750e811ccE4de68DEe2aC483EE7cAc8ED76875b));
-        address loanToken = vm.envOr("LOAN_TOKEN_ADDRESS", address(0));
-        address collateralToken = vm.envOr("COLLATERAL_TOKEN_ADDRESS", address(0));
-        address oracleAddr = vm.envOr("ORACLE_ADDRESS", address(0x0C19a3f5441B519803C34f4fc703c7ce3b2b62de));
-        address gateAddr = vm.envOr("GATE_ADDRESS", address(0));
+        uint256 pk = vm.envOr("PRIVATE_KEY", uint256(0));
+        require(pk != 0, "PRIVATE_KEY required");
+
+        address covenantAddr = vm.envOr("COVENANT_CORE_ADDRESS", address(0));
+        address loanToken = vm.envOr("TEST_USDC_ADDRESS", address(0));
+        address collateralToken = vm.envOr("TEST_WBTC_ADDRESS", address(0));
+        address oracleAddr = vm.envOr("COVENANT_ORACLE_ADDRESS", address(0));
+        address gateAddr = vm.envOr("COVENANT_GATE_ADDRESS", address(0));
+        uint256 maturityTimestamp = vm.envOr("MATURITY_TIMESTAMP", uint256(0));
         uint256 maturityDays = vm.envOr("MATURITY_DAYS", uint256(90));
 
-        require(loanToken != address(0), "LOAN_TOKEN_ADDRESS required");
-        require(collateralToken != address(0), "COLLATERAL_TOKEN_ADDRESS required");
+        require(covenantAddr != address(0), "COVENANT_CORE_ADDRESS required");
+        require(loanToken != address(0), "TEST_USDC_ADDRESS required");
+        require(collateralToken != address(0), "TEST_WBTC_ADDRESS required");
+        require(oracleAddr != address(0), "COVENANT_ORACLE_ADDRESS required");
+        require(gateAddr != address(0), "COVENANT_GATE_ADDRESS required");
 
         Covenant covenant = Covenant(covenantAddr);
-        uint256 maturity = block.timestamp + (maturityDays * 1 days);
-        uint256 lltv = LLTV_3; // 77% LLTV (0.77e18)
+        uint256 maturity = maturityTimestamp != 0 ? maturityTimestamp : block.timestamp + (maturityDays * 1 days);
+        uint256 lltv = LLTV_3; // 86% LLTV (0.86e18)
         uint256 maxLifVal = maxLif(lltv, LIQUIDATION_CURSOR_LOW);
 
         CollateralParams[] memory collat = new CollateralParams[](1);

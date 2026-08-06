@@ -1,18 +1,42 @@
 import { useReadContract } from "wagmi";
 import { ADDRESSES } from "../config/chain";
-import { CHAINLINK_FEED_ABI } from "../config/abis";
 
-/** Reads latestRoundData from the Chainlink feed and returns the human-readable USD price. */
+/**
+ * Reads BTC/USD from the owner-push BtcUsdOracle deployed on Monad. Chainlink Data Feeds are not
+ * on Monad testnet, so the oracle is a manual-push adapter; a keeper posts prices periodically.
+ *
+ * `rawPrice` is the raw 8-decimal price (Chainlink convention, e.g. $100_000 = 100_000e8).
+ * `updatedAt` is the Unix seconds of the last push; `staleSec` is how old that push is.
+ */
+const BTC_USD_ORACLE_ABI = [
+  { type: "function", stateMutability: "view", name: "rawPrice",  inputs: [], outputs: [{ type: "uint256" }] },
+  { type: "function", stateMutability: "view", name: "updatedAt", inputs: [], outputs: [{ type: "uint256" }] },
+] as const;
+
 export function useOraclePrice() {
-  const { data, isLoading, refetch } = useReadContract({
-    address: ADDRESSES.chainlinkFeed,
-    abi: CHAINLINK_FEED_ABI,
-    functionName: "latestRoundData",
+  const raw = useReadContract({
+    address: ADDRESSES.oracle,
+    abi: BTC_USD_ORACLE_ABI,
+    functionName: "rawPrice",
     query: { refetchInterval: 30_000 },
   });
-  const answer = data ? (data[1] as bigint) : undefined;
-  const updatedAt = data ? Number(data[3] as bigint) : undefined;
-  const usd = answer !== undefined ? Number(answer) / 1e8 : undefined;
+  const upd = useReadContract({
+    address: ADDRESSES.oracle,
+    abi: BTC_USD_ORACLE_ABI,
+    functionName: "updatedAt",
+    query: { refetchInterval: 30_000 },
+  });
+
+  const rawPrice = raw.data as bigint | undefined;
+  const updatedAt = upd.data !== undefined ? Number(upd.data as bigint) : undefined;
+  const usd = rawPrice !== undefined ? Number(rawPrice) / 1e8 : undefined;
   const staleSec = updatedAt ? Math.max(0, Math.floor(Date.now() / 1000) - updatedAt) : undefined;
-  return { usd, updatedAt, staleSec, isLoading, refetch };
+
+  return {
+    usd,
+    updatedAt,
+    staleSec,
+    isLoading: raw.isLoading || upd.isLoading,
+    refetch: () => { void raw.refetch(); void upd.refetch(); },
+  };
 }

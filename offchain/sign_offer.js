@@ -1,41 +1,33 @@
 #!/usr/bin/env node
 /**
- * Off-chain Offer signing example.
+ * Off-chain Offer signing for Covenant.
  *
- * A lender in Covenant does NOT put their offer on-chain — that would waste gas and lock the offer to
- * a single market execution. Instead they sign the Offer struct with EIP-712 and publish the signature
- * off-chain (via API, database, or a marketplace). A borrower takes the offer on-chain by calling
- * `fillOffer(offer, notaryData, ...)`, and the `EcrecoverNotary` (bound to the offer) verifies
- * the signature was produced by the offer's `maker`.
+ * Signs an Offer struct with EIP-712 and produces the complete `notaryData` bytes
+ * needed for `Covenant.fillOffer`. Supports two modes:
  *
- * This script demonstrates the signing half. It produces a signature you can pass as `notaryData`
- * to the on-chain fillOffer call — no on-chain state changes here.
+ *   Interactive:  node offchain/sign_offer.js
+ *   JSON output:  node offchain/sign_offer.js --json [--buy] [--sell] [--units N] [--expiry N]
+ *
+ * The JSON mode is consumed by the API server to generate fresh signed offers on demand.
  *
  * Install once:
- *   npm i ethers@6
- *
- * Run:
- *   node offchain/sign_offer.js
+ *   cd offchain && npm i ethers@6
  */
 
 const { ethers } = require("ethers");
 
 // ─────────────────────────────────────────────────────────────────────────────
-// CONFIG — replace with your deployment
+// CONFIG — Monad testnet deployment addresses
 // ─────────────────────────────────────────────────────────────────────────────
 const CONFIG = {
   chainId: 10143,
-  ecrecoverNotary: "0x0000000000000000000000000000000000000000", // deploy periphery, paste address
-  // Lender's private key — this key MUST correspond to the offer.maker address.
-  // For hackathon demos use a throwaway key; for production a wallet does the signing.
-  lenderPrivateKey: process.env.LENDER_PRIVATE_KEY,
+  ecrecoverNotary: process.env.ECRECOVER_NOTARY_ADDRESS || "0xc35B4e48940D68Dd449d19D3657e754632CC873C",
+  lenderPrivateKey: process.env.PRIVATE_KEY,
 };
 
 // ─────────────────────────────────────────────────────────────────────────────
 // EIP-712 TYPES — must exactly match src/interfaces/ICovenant.sol
 // ─────────────────────────────────────────────────────────────────────────────
-// Field NAMES matter (they hash into the typehash). If Covenant's structs change,
-// update these. Verified against MARKET_TYPE / OFFER_TYPE in test/HashLibTest.sol.
 const TYPES = {
   CollateralParams: [
     { name: "token",  type: "address" },
@@ -62,82 +54,211 @@ const TYPES = {
     { name: "callback",                  type: "address" },
     { name: "callbackData",              type: "bytes"   },
     { name: "receiverIfMakerIsSeller",   type: "address" },
-    { name: "notary",                  type: "address" },
+    { name: "notary",                    type: "address" },
     { name: "reduceOnly",                type: "bool"    },
     { name: "maxUnits",                  type: "uint256" },
     { name: "maxAssets",                 type: "uint256" },
   ],
+  // The field MUST be named `offerTree`. HashLib.offerTreeTypeHash(0) hashes the
+  // string "OfferTree(Offer offerTree)…"; naming it `offer` yields a different
+  // typehash, a different digest, and ecrecover returns an unrelated address —
+  // which the notary rejects with Unauthorized().
+  OfferTree: [
+    { name: "offerTree", type: "Offer" },
+  ],
 };
 
 // ─────────────────────────────────────────────────────────────────────────────
-// SIGN
+// Typehashes — must match HashLib.sol exactly
 // ─────────────────────────────────────────────────────────────────────────────
-async function main() {
+const COLLATERAL_PARAMS_TYPEHASH = "0xaf44a88eb50ebdbbebd980e5a23045c44f61ece5f80ab708a1bbe8718102e6af";
+const MARKET_TYPEHASH = "0x4d629a25703924f44fdc6d27bc80b822f48f46c8093e48ee1d9f917b651ce5ab";
+const OFFER_TYPEHASH = "0x511c15b0860ce049695d22079788e07bf20c7091820f0d8677a4a18886c0a9ef";
+
+// ─────────────────────────────────────────────────────────────────────────────
+// HashLib port — replicate HashLib.hashOffer in JS to compute the Merkle root
+// ─────────────────────────────────────────────────────────────────────────────
+const abiCoder = ethers.AbiCoder.defaultAbiCoder();
+
+function hashCollateralParams(cp) {
+  return ethers.keccak256(abiCoder.encode(
+    ["bytes32", "address", "uint256", "uint256", "address"],
+    [COLLATERAL_PARAMS_TYPEHASH, cp.token, cp.lltv, cp.maxLif, cp.oracle]
+  ));
+}
+
+function hashMarket(market) {
+  const cpHashes = market.collateralParams.map(hashCollateralParams);
+  const collateralParamsHash = ethers.keccak256(ethers.concat(cpHashes));
+  return ethers.keccak256(abiCoder.encode(
+    ["bytes32", "address", "bytes32", "uint256", "uint256", "address", "address"],
+    [MARKET_TYPEHASH, market.loanToken, collateralParamsHash, market.maturity, market.rcfThreshold, market.entryGate, market.seizureGate]
+  ));
+}
+
+function hashOffer(offer) {
+  return ethers.keccak256(abiCoder.encode(
+    ["bytes32", "bytes32", "bool", "address", "uint256", "uint256", "uint256", "bytes32", "address", "bytes32", "address", "address", "bool", "uint256", "uint256"],
+    [
+      OFFER_TYPEHASH,
+      hashMarket(offer.market),
+      offer.buy,
+      offer.maker,
+      offer.start,
+      offer.expiry,
+      offer.tick,
+      offer.group,
+      offer.callback,
+      ethers.keccak256(offer.callbackData),
+      offer.receiverIfMakerIsSeller,
+      offer.notary,
+      offer.reduceOnly,
+      offer.maxUnits,
+      offer.maxAssets,
+    ]
+  ));
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// The live Monad testnet market (must match on-chain exactly).
+//
+// Market ids are content-addressed — the id is keccak of this struct — so every
+// field here must equal the on-chain market byte for byte. A single wrong field
+// addresses a different, uninitialized market and fillOffer reverts.
+// ─────────────────────────────────────────────────────────────────────────────
+const MARKET = {
+  loanToken: "0x7dbe32f1e1d3db45123f60ec5a79312863a7e279",
+  collateralParams: [{
+    token:  "0x088b748e05b85af8ad2ee3c538a517f3eb1ce2ad",
+    lltv:   "860000000000000000",
+    maxLif: "1036269430051813471",
+    oracle: "0x2E09f0566A87Bb27615873aBCF18855d37b000F9", // STALENESS=0 — price never expires
+  }],
+  maturity:     1820000000,
+  rcfThreshold: 0,
+  entryGate:    "0xd49faa5d2d18b0ad04ef01093d2c2ef24ea8ad2c",
+  seizureGate:  "0xd49faa5d2d18b0ad04ef01093d2c2ef24ea8ad2c",
+};
+
+// ─────────────────────────────────────────────────────────────────────────────
+// SIGN + ENCODE
+// ─────────────────────────────────────────────────────────────────────────────
+async function signOffer({ buy = true, maxUnits = null, expirySeconds = 3600 } = {}) {
   if (!CONFIG.lenderPrivateKey) {
-    console.error("Set LENDER_PRIVATE_KEY in the env, e.g. `LENDER_PRIVATE_KEY=0x… node offchain/sign_offer.js`");
-    process.exit(1);
+    throw new Error("PRIVATE_KEY env var is required");
   }
 
   const wallet = new ethers.Wallet(CONFIG.lenderPrivateKey);
-  console.log(`Signer (must equal offer.maker): ${wallet.address}\n`);
+  const now = Math.floor(Date.now() / 1000);
 
-  // ── The market this offer trades in.
-  // Every field must match the on-chain market exactly; the market id is derived from it.
-  const market = {
-    loanToken: "0x0000000000000000000000000000000000000001",         // your USDC
-    collateralParams: [{
-      token:  "0x0000000000000000000000000000000000000002",          // your WBTC
-      lltv:   ethers.parseUnits("0.77", 18),                          // 77%
-      maxLif: ethers.parseUnits("1.09", 18),                          // 9% max liquidation incentive
-      oracle: "0x0000000000000000000000000000000000000003",           // your BtcUsdOracle
-    }],
-    maturity:     Math.floor(Date.now() / 1000) + 90 * 24 * 3600,     // 90 days
-    rcfThreshold: 0,
-    entryGate:    "0x0000000000000000000000000000000000000000",       // your CleanversePoolGate
-    seizureGate:  "0x0000000000000000000000000000000000000000",       // your CleanversePoolGate
-  };
-
-  // ── The offer. `buy: true` = lender (buys credit); `maker: wallet.address`.
   const offer = {
-    market,
-    buy:                     true,
+    market: MARKET,
+    buy,
     maker:                   wallet.address,
     start:                   0,
-    expiry:                  Math.floor(Date.now() / 1000) + 3600,   // 1h window to fill
-    tick:                    ethers.toBigInt("0x7fffffffffffffffffffffffffff"), // MAX_TICK (par)
+    expiry:                  now + expirySeconds,
+    tick:                    5820n, // MAX_TICK (par) — divisible by tickSpacing=4
     group:                   ethers.ZeroHash,
     callback:                ethers.ZeroAddress,
     callbackData:            "0x",
-    receiverIfMakerIsSeller: ethers.ZeroAddress,
-    notary:                CONFIG.ecrecoverNotary,
+    receiverIfMakerIsSeller: buy ? ethers.ZeroAddress : wallet.address,
+    notary:                  CONFIG.ecrecoverNotary,
     reduceOnly:              false,
-    maxUnits:                ethers.MaxUint256,
+    maxUnits:                maxUnits ? BigInt(maxUnits) : ethers.MaxUint256,
     maxAssets:               0,
   };
 
-  // ── EIP-712 domain. `EcrecoverNotary` uses (chainId, verifyingContract) only —
-  // no name or version fields — matching EIP712_DOMAIN_TYPEHASH in the notary's interface.
   const domain = {
-    chainId:            CONFIG.chainId,
-    verifyingContract:  CONFIG.ecrecoverNotary,
+    chainId:           CONFIG.chainId,
+    verifyingContract: CONFIG.ecrecoverNotary,
   };
 
-  const signature = await wallet.signTypedData(domain, TYPES, offer);
-  console.log("EIP-712 signature (pass as notaryData to fillOffer):");
-  console.log(`  ${signature}\n`);
+  const offerTree = { offerTree: offer };
+  const signature = await wallet.signTypedData(domain, TYPES, offerTree);
+  const sig = ethers.Signature.from(signature);
 
-  // ── The `notaryData` argument to `Covenant.fillOffer` for the simple (single-offer, no merkle
-  // tree) case is exactly this signature. For batch/merkle flows see EcrecoverNotary tests.
+  // Compute root = HashLib.hashOffer(offer) — must match Solidity exactly
+  const root = hashOffer(offer);
 
-  console.log("On-chain call the taker will make:");
-  console.log("  covenant.fillOffer(offer, notaryData, units, taker, receiver, callback, data)");
-  console.log("  where");
-  console.log("    offer         = the same struct signed above");
-  console.log("    notaryData  = the signature above");
-  console.log("    units         = amount of credit units the taker wants to fill");
-  console.log("    taker         = the taker's address (msg.sender or authorized delegate)");
-  console.log("    receiver      = where loan tokens go if the taker is the seller");
-  console.log("    callback/data = optional (address(0)/'0x' for none)");
+  // Encode notaryData = abi.encode(Signature{v,r,s}, root, leafIndex=0, proof=[])
+  const notaryData = abiCoder.encode(
+    ["tuple(uint8 v, bytes32 r, bytes32 s)", "bytes32", "uint256", "bytes32[]"],
+    [{ v: sig.v, r: sig.r, s: sig.s }, root, 0, []]
+  );
+
+  // Build the offer with all values as decimal strings (safe for JSON)
+  const offerJSON = {
+    market: {
+      loanToken: offer.market.loanToken,
+      collateralParams: offer.market.collateralParams.map(cp => ({
+        token:  cp.token,
+        lltv:   String(cp.lltv),
+        maxLif: String(cp.maxLif),
+        oracle: cp.oracle,
+      })),
+      maturity:     String(offer.market.maturity),
+      rcfThreshold: String(offer.market.rcfThreshold),
+      entryGate:    offer.market.entryGate,
+      seizureGate:  offer.market.seizureGate,
+    },
+    buy:                     offer.buy,
+    maker:                   offer.maker,
+    start:                   String(offer.start),
+    expiry:                  String(offer.expiry),
+    tick:                    String(offer.tick),
+    group:                   offer.group,
+    callback:                offer.callback,
+    callbackData:            offer.callbackData,
+    receiverIfMakerIsSeller: offer.receiverIfMakerIsSeller,
+    notary:                  offer.notary,
+    reduceOnly:              offer.reduceOnly,
+    maxUnits:                String(offer.maxUnits),
+    maxAssets:               String(offer.maxAssets),
+  };
+
+  return {
+    maker: wallet.address,
+    offer: offerJSON,
+    notaryData,
+    expiry: offer.expiry,
+    root,
+  };
 }
+
+// ─────────────────────────────────────────────────────────────────────────────
+// CLI
+// ─────────────────────────────────────────────────────────────────────────────
+async function main() {
+  const args = process.argv.slice(2);
+  const jsonMode = args.includes("--json");
+  const buy = !args.includes("--sell");
+  const unitsIdx = args.indexOf("--units");
+  const maxUnits = unitsIdx >= 0 ? args[unitsIdx + 1] : null;
+  const expiryIdx = args.indexOf("--expiry");
+  const expirySeconds = expiryIdx >= 0 ? parseInt(args[expiryIdx + 1]) : 3600;
+
+  if (!CONFIG.lenderPrivateKey) {
+    console.error("Set PRIVATE_KEY in the env.");
+    process.exit(1);
+  }
+
+  const result = await signOffer({ buy, maxUnits, expirySeconds });
+
+  if (jsonMode) {
+    console.log(JSON.stringify(result));
+    return;
+  }
+
+  const wallet = new ethers.Wallet(CONFIG.lenderPrivateKey);
+  console.log(`Signer (offer.maker): ${wallet.address}`);
+  console.log(`Side: ${buy ? "BUY credit (lender)" : "SELL credit (borrower)"}`);
+  console.log(`Expiry: ${new Date(Number(result.expiry) * 1000).toLocaleString()}\n`);
+  console.log(`notaryData (pass to fillOffer):\n  ${result.notaryData}\n`);
+  console.log(`Root (hashOffer): ${result.root}\n`);
+  console.log("Full offer struct (JSON):");
+  console.log(JSON.stringify(result.offer, null, 2));
+}
+
+module.exports = { signOffer, MARKET, TYPES };
 
 main().catch((e) => { console.error(e); process.exit(1); });

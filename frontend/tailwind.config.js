@@ -7,34 +7,75 @@ export default {
         sans: ["Inter", "system-ui", "-apple-system", "sans-serif"],
         mono: ["JetBrains Mono", "ui-monospace", "monospace"],
       },
+      fontSize: {
+        // Refined institutional scale — tighter display, more generous body
+        display: ["3.5rem", { lineHeight: "1.05", letterSpacing: "-0.03em", fontWeight: "650" }],
+        h1:      ["2.5rem", { lineHeight: "1.12", letterSpacing: "-0.025em", fontWeight: "650" }],
+        h2:      ["1.75rem", { lineHeight: "1.22", letterSpacing: "-0.02em", fontWeight: "600" }],
+        h3:      ["1.25rem", { lineHeight: "1.3", letterSpacing: "-0.015em", fontWeight: "600" }],
+        "body-lg": ["1.0625rem", { lineHeight: "1.65", letterSpacing: "-0.006em" }],
+        body:      ["0.9375rem", { lineHeight: "1.6" }],
+        "body-sm": ["0.8125rem", { lineHeight: "1.5" }],
+        micro:     ["0.6875rem", { lineHeight: "1.4", letterSpacing: "0.06em" }],
+      },
       colors: {
-        // Reference: TheStandard.io-style. Deep near-black background, cyan/teal primary accent,
-        // support colors (green up, red down, orange highlight) for stat values.
-        ink:     { 950: "#04060c", 900: "#080b16", 800: "#0c1120", 700: "#141a2c" },
-        surface: { DEFAULT: "rgba(12, 17, 32, 0.72)", solid: "#0c1120", raised: "#141a2c" },
-        line:    "rgba(148, 163, 184, 0.10)",
-        muted:   "#8ea2b8",
-        subtle:  "#5b6c85",
-        brand:   {
-          100: "#c8fff8", 200: "#8ff5e8", 300: "#4feadb", 400: "#22d3c2",
-          500: "#0ec6b5", 600: "#0aa89a", 700: "#087a70",
+        // Deeper neutral base — less navy, more pure neutral
+        ink:     {
+          950: "#030712", // pure dark
+          900: "#0a0e1a",
+          800: "#111827",
+          700: "#1f2937",
+          600: "#374151"
         },
-        ok:      "#22c55e",
+        surface: {
+          DEFAULT: "rgba(17, 24, 39, 0.90)",
+          solid: "#111827",
+          raised: "#1f2937",
+          sunken: "#0a0e1a"
+        },
+        line:    "rgba(156, 163, 175, 0.10)",
+        "line-strong": "rgba(156, 163, 175, 0.18)",
+        muted:   "#9ca3af",
+        subtle:  "#6b7280",
+
+        // Refined cyan — pure, desaturated, professional
+        brand:   {
+          50:  "#ecfeff",
+          100: "#cffafe",
+          200: "#a5f3fc",
+          300: "#67e8f9",
+          400: "#22d3ee",  // primary interactive
+          500: "#06b6d4",  // primary solid
+          600: "#0891b2",
+          700: "#0e7490",
+        },
+
+        // Semantic colors — reserved for status only
+        compliant: { DEFAULT: "#10b981", bg: "rgba(16, 185, 129, 0.08)", border: "rgba(16, 185, 129, 0.24)" },
+        ok:      "#10b981",
         warn:    "#f59e0b",
         bad:     "#ef4444",
-        pop:     "#f97316", // orange stat accent (matches reference)
       },
       boxShadow: {
-        card: "0 8px 32px 0 rgba(0, 0, 0, 0.5)",
-        glow: "0 0 0 1px rgba(34, 211, 194, 0.35), 0 0 24px 0 rgba(14, 198, 181, 0.35)",
-        "glow-sm": "0 0 0 1px rgba(34, 211, 194, 0.25), 0 0 12px 0 rgba(14, 198, 181, 0.2)",
+        // Subtle elevation — no glow, just depth
+        card:      "0 1px 3px 0 rgba(0,0,0,0.5), 0 0.5px 0 0 rgba(255,255,255,0.02) inset",
+        "card-hover": "0 8px 24px -6px rgba(0,0,0,0.6), 0 0.5px 0 0 rgba(255,255,255,0.03) inset",
+        popover:   "0 20px 48px -12px rgba(0,0,0,0.65), 0 0 0 1px rgba(156,163,175,0.08)",
+        "focus-ring": "0 0 0 3px rgba(34, 211, 238, 0.28)",
       },
       backgroundImage: {
-        // Diagonal radial glows behind the app — left-bottom teal, right-top cool blue.
-        "hero-glow":
-          "radial-gradient(at 10% 60%, rgba(14, 198, 181, 0.16), transparent 45%), radial-gradient(at 90% 10%, rgba(30, 64, 175, 0.12), transparent 45%)",
-        "chart-glow":
-          "linear-gradient(180deg, rgba(34, 211, 194, 0.28) 0%, rgba(34, 211, 194, 0) 100%)",
+        "grid-fine":
+          "linear-gradient(rgba(156,163,175,0.05) 1px, transparent 1px), linear-gradient(90deg, rgba(156,163,175,0.05) 1px, transparent 1px)",
+      },
+      keyframes: {
+        shimmer: { "100%": { transform: "translateX(100%)" } },
+        "fade-in": { from: { opacity: 0 }, to: { opacity: 1 } },
+        "fade-in-up": { from: { opacity: 0, transform: "translateY(4px)" }, to: { opacity: 1, transform: "translateY(0)" } },
+      },
+      animation: {
+        shimmer: "shimmer 1.8s infinite",
+        "fade-in": "fade-in 0.2s ease-out both",
+        "fade-in-up": "fade-in-up 0.3s cubic-bezier(0.16,1,0.3,1) both",
       },
     },
   },

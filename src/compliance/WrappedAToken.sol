@@ -3,46 +3,51 @@
 pragma solidity 0.8.34;
 
 import {IERC20} from "../interfaces/IERC20.sol";
-import {ICleanversePool} from "./interfaces/ICleanversePool.sol";
+import {IAPassComplianceValidator} from "./interfaces/IAPassComplianceValidator.sol";
 import {IWrappedAToken} from "./interfaces/IWrappedAToken.sol";
 
 /// @title WrappedAToken
-/// @notice Compliance-aware 1:1 wrapper for an origin ERC-20, gated by a Cleanverse compliance pool.
+/// @notice Compliance-aware 1:1 wrapper for an origin ERC-20, gated by the CVI Compliance Validator (CCP V2).
 /// @dev The single interesting property of this contract is that every inbound transfer (mint on deposit,
 /// `transfer`, `transferFrom`) short-circuits to a revert when the recipient is neither exempt nor
-/// verified under the bound pool. The gas-bounded, fail-closed `_eligible` helper is the same shape as
-/// `CleanversePoolGate._eligible` so that the token and the market gate agree byte-for-byte on who is
-/// eligible: a wallet the gate would refuse to open a position for is also a wallet the loan token
+/// verified by the bound validator. The gas-bounded, fail-closed `_eligible` helper has the same shape
+/// as `CleanversePoolGate._eligible` so that the token and the market gate agree byte-for-byte on who
+/// is eligible: a wallet the gate would refuse to open a position for is also a wallet the loan token
 /// itself would refuse to be transferred to.
+///
+/// The wrapper itself is a "pool" from the validator's point of view. After deployment, it must be
+/// registered against the validator via `POST /api/cooperate/validator/register` (or, in factory mode,
+/// `IAPassComplianceValidator.registerApass(poolAddress, address(this))`) so that
+/// `validator.complianceVerify(address(this), user)` can answer.
 ///
 /// Design invariants:
 ///
-/// - **Pool is immutable.** Rebinding requires a new token (and therefore a new market), which prevents
-///   silently repointing a live loan token at a laxer policy.
-/// - **Only inbound transfers are gated.** Burning to `address(0)` on `withdraw` is exempt, so a holder
-///   whose credential is later revoked can always reclaim their locked origin balance — this mirrors the
-///   Covenant engine's "gate increases, not exits" rule and prevents an outage from stranding capital.
-/// - **Exempt set is minimal.** The token owner may register infrastructure addresses (the Covenant core,
-///   a router, a bundler) that need to receive the wrapped token as pass-through liquidity. This is the
-///   on-chain analogue of Cleanverse's institutional-deposit whitelist and is deliberately narrow.
-/// - **Fail-closed reads.** Any pool failure — revert, malformed response, gas exhaustion, unregistered,
-///   paused — resolves to `not eligible`. Unavailable verification is never treated as clearance.
+/// - **Validator is immutable.** Rebinding requires a new token (and therefore a new market), which
+///   prevents silently repointing a live loan token at a laxer policy.
+/// - **Only inbound transfers are gated.** `withdraw` (burn-to-origin) is intentionally ungated so a
+///   holder whose credential is later revoked can reclaim their locked origin balance — this mirrors
+///   the Covenant engine's "gate increases, not exits" rule.
+/// - **Exempt set is minimal.** The token owner may register infrastructure addresses (the Covenant
+///   core, a router, a bundler) that need to receive the wrapped token as pass-through liquidity. This
+///   is the on-chain analogue of Cleanverse's institutional-deposit whitelist and is deliberately narrow.
+/// - **Fail-closed reads.** Any validator failure — revert, malformed response, gas exhaustion,
+///   unregistered pool, paused-pool-denying — resolves to `not eligible`. Unavailable verification is
+///   never treated as clearance.
 ///
 /// A `WrappedAToken` deployed as the loan token of a Covenant market makes the flash-loan surface a
 /// non-issue: `covenant.flashLoan([waUSDC], ..., callback)` calls `safeTransfer(waUSDC, callback, amt)`,
 /// which routes through `_transfer` here, which reverts before the callback ever executes when the
 /// callback wallet is not verified.
 contract WrappedAToken is IWrappedAToken {
-    /// @dev Cap on gas per pool read. Bounds a misbehaving pool from consuming the whole transfer's gas
-    /// budget and converting a compliance denial into a market-wide DoS. Same cap as
-    /// `CleanversePoolGate`.
-    uint256 internal constant POOL_GAS_LIMIT = 150_000;
+    /// @dev Cap on gas per validator read. Bounds a misbehaving validator from consuming the whole
+    /// transfer's gas budget. Same cap as `CleanversePoolGate`.
+    uint256 internal constant VALIDATOR_GAS_LIMIT = 150_000;
 
     /// @inheritdoc IWrappedAToken
     IERC20 public immutable origin;
 
     /// @inheritdoc IWrappedAToken
-    ICleanversePool public immutable pool;
+    IAPassComplianceValidator public immutable validator;
 
     /// @notice Address permitted to update the exempt set and transfer ownership.
     address public owner;
@@ -59,7 +64,7 @@ contract WrappedAToken is IWrappedAToken {
     mapping(address => bool) public isExempt;
 
     error ZeroOrigin();
-    error ZeroPool();
+    error ZeroValidator();
     error ZeroOwner();
     error ZeroAddress();
     error ZeroAmount();
@@ -101,15 +106,15 @@ contract WrappedAToken is IWrappedAToken {
     }
 
     /// @param _origin The origin ERC-20 this wrapper locks 1:1 (e.g. native USDC).
-    /// @param _pool The Cleanverse compliance pool consulted on every inbound transfer.
+    /// @param _validator The CVI Compliance Validator consulted on every inbound transfer.
     /// @param _owner Address permitted to manage the exempt set. Typically an institution's governance
     /// multisig or the same owner as the paired `CovenantRegistry`.
     /// @param _name Display name (e.g. "Wrapped Access USDC").
     /// @param _symbol Symbol (e.g. "waUSDC").
     /// @param _decimals Must match the origin token's decimals so `deposit`/`withdraw` remain 1:1 by unit.
-    constructor(IERC20 _origin, ICleanversePool _pool, address _owner, string memory _name, string memory _symbol, uint8 _decimals) {
+    constructor(IERC20 _origin, IAPassComplianceValidator _validator, address _owner, string memory _name, string memory _symbol, uint8 _decimals) {
         require(address(_origin) != address(0), ZeroOrigin());
-        require(address(_pool) != address(0), ZeroPool());
+        require(address(_validator) != address(0), ZeroValidator());
         require(_owner != address(0), ZeroOwner());
 
         // The 1:1 wrap is by raw unit, so a `decimals` that disagrees with the origin token silently
@@ -122,7 +127,7 @@ contract WrappedAToken is IWrappedAToken {
         }
 
         origin = _origin;
-        pool = _pool;
+        validator = _validator;
         owner = _owner;
         name = _name;
         symbol = _symbol;
@@ -151,28 +156,25 @@ contract WrappedAToken is IWrappedAToken {
     /* WRAP / UNWRAP */
 
     /// @inheritdoc IWrappedAToken
-    function deposit(uint256 assets, address receiver) external nonReentrant returns (uint256 minted) {
+    /// @dev Assumes a well-behaved origin token — fee-on-transfer and rebasing tokens are out of scope,
+    /// and the wrapper's `totalSupply == origin.balanceOf(this)` invariant depends on that assumption.
+    /// The constructor's `decimals()` check catches the most common mis-pairing.
+    function deposit(uint256 assets, address receiver) external nonReentrant returns (uint256) {
         require(assets != 0, ZeroAmount());
         require(receiver != address(0), ZeroAddress());
         require(_eligible(receiver), RecipientNotCompliant(receiver));
 
-        // Mint against the balance actually received, not the amount requested. A fee-on-transfer or
-        // deflationary origin token delivers less than `assets`; minting `assets` regardless would
-        // leave the wrapper under-collateralised, and the shortfall would land on whoever redeemed
-        // last. Measuring the delta keeps `totalSupply <= origin.balanceOf(this)` an invariant.
-        uint256 balanceBefore = origin.balanceOf(address(this));
         _pullOrigin(msg.sender, assets);
-        minted = origin.balanceOf(address(this)) - balanceBefore;
-        require(minted != 0, ZeroAmount());
 
-        totalSupply += minted;
+        totalSupply += assets;
         unchecked {
-            // safe: totalSupply just grew by `minted`, so the sum below cannot overflow.
-            balanceOf[receiver] += minted;
+            // safe: totalSupply just grew by `assets`, so the sum below cannot overflow.
+            balanceOf[receiver] += assets;
         }
 
-        emit Deposit(msg.sender, receiver, minted);
-        emit Transfer(address(0), receiver, minted);
+        emit Deposit(msg.sender, receiver, assets);
+        emit Transfer(address(0), receiver, assets);
+        return assets;
     }
 
     /// @inheritdoc IWrappedAToken
@@ -235,18 +237,18 @@ contract WrappedAToken is IWrappedAToken {
         emit Transfer(from, to, amount);
     }
 
-    /// @dev `isRegistered → paused → verify`, short-circuiting on the first denial. Exempt addresses
-    /// bypass the pool read entirely. Any failure at any stage denies. Same shape and order as
-    /// `CleanversePoolGate._eligible` so the token and the market gate cannot disagree.
+    /// @dev `isRegistered(this) → complianceVerify(this, account)`, short-circuiting on the first
+    /// denial. Exempt addresses bypass the validator read entirely. Any failure denies. Same shape
+    /// as `CleanversePoolGate._eligible`, so the token and the market gate cannot disagree. Per CCP
+    /// V2, pause is folded into `complianceVerify` returning false — no separate `paused()` call.
     function _eligible(address account) internal view returns (bool) {
         if (isExempt[account]) return true;
-        if (!_readBool(abi.encodeCall(ICleanversePool.isRegistered, ()))) return false;
-        if (_readBool(abi.encodeCall(ICleanversePool.paused, ()))) return false;
-        return _readBool(abi.encodeCall(ICleanversePool.verify, (account)));
+        if (!_readBool(abi.encodeCall(IAPassComplianceValidator.isRegistered, (address(this))))) return false;
+        return _readBool(abi.encodeCall(IAPassComplianceValidator.complianceVerify, (address(this), account)));
     }
 
     function _readBool(bytes memory data) internal view returns (bool) {
-        (bool ok, bytes memory result) = address(pool).staticcall{gas: POOL_GAS_LIMIT}(data);
+        (bool ok, bytes memory result) = address(validator).staticcall{gas: VALIDATOR_GAS_LIMIT}(data);
         if (!ok || result.length < 32) return false;
         return abi.decode(result, (bool));
     }

@@ -1,78 +1,78 @@
 import { ADDRESSES, MARKETS } from "./chain";
 
-/**
- * Demo signed offers for the Sepolia demo market. In production these would be served by a
- * marketplace API (Telegram bot, web app, inter-institutional bus). For the hackathon demo we
- * seed a few realistic-looking offers so a taker can click straight into `fillOffer` without
- * having to run the off-chain signer first.
- *
- * The `notaryData` on these is deliberately a placeholder — the on-chain notary will refuse to
- * ratify them because the deployed EcrecoverNotary requires a real EIP-712 signature over the
- * exact Offer struct. That's the correct outcome: the UI proves the *flow* (click → preview →
- * sign → submit → gate), and the notary is the honest ratifier that will only accept genuinely
- * signed offers. Replace `notaryData` with the output of `offchain/sign_offer.js` to submit a
- * fill that actually settles.
- */
-
-// The one demo market defined in chain.ts. Every field must match the on-chain market so the
-// derived id (keccak of every field including gate) matches — otherwise Covenant.fillOffer
-// reverts before the notary is even consulted.
-const DEMO_MARKET = {
-  loanToken: ADDRESSES.usdc,
-  collateralParams: [
-    {
-      token:  ADDRESSES.wbtc,
-      lltv:   "770000000000000000",           // 0.77 * 1e18
-      maxLif: "1093023255813953488",          // maxLif(0.77e18, LIQUIDATION_CURSOR_LOW)
-      oracle: ADDRESSES.oracle,
-    },
-  ],
-  maturity:     "1780000000",                 // demo maturity — replace with actual on-chain value
-  rcfThreshold: "0",
-  entryGate:    ADDRESSES.gate,
-  seizureGate:  ADDRESSES.gate,
-};
-
-const MAX_TICK = "0x7fffffffffffffffffffffffffff"; // par pricing
-const ONE_HOUR = 60 * 60;
-const now = Math.floor(Date.now() / 1000);
-
 export type DemoOffer = {
-  id: string;                // stable identifier for URL param
-  label: string;             // human-readable card title
+  id: string;
+  label: string;
   side: "lend" | "borrow";
-  rateBps: number;           // annualized, for display
+  rateBps: number;
   maker: `0x${string}`;
-  maxUnits: string;          // stringified bigint
-  expiry: number;            // unix seconds
-  offer: any;                // the exact Offer struct (uint256s as decimal strings, ready for BigInt coerce)
+  maxUnits: string;
+  expiry: number;
+  offer: any;
   notaryData: `0x${string}`;
 };
 
 export const DEMO_MARKET_ID = MARKETS[0].id;
 
-/** Two demo offers: one lender-side (maker BUYS credit), one borrower-side (maker SELLS credit). */
-export const DEMO_OFFERS: DemoOffer[] = [
+/**
+ * Fetches freshly signed offers from the API server. Each offer has a real EIP-712 signature
+ * and properly encoded notaryData so fillOffer will pass the EcrecoverNotary check on-chain.
+ */
+export async function fetchLiveOffers(): Promise<DemoOffer[]> {
+  const resp = await fetch("/api/offers");
+  const data = await resp.json();
+  if (data.ok && Array.isArray(data.offers)) {
+    return data.offers;
+  }
+  throw new Error(data.message || "Failed to fetch offers");
+}
+
+// Static fallback market definition — matches on-chain market exactly.
+const DEMO_MARKET = {
+  loanToken: ADDRESSES.usdc,
+  collateralParams: [
+    {
+      token:  ADDRESSES.wbtc,
+      lltv:   "860000000000000000",
+      maxLif: "1036269430051813471",
+      oracle: ADDRESSES.oracle,
+    },
+  ],
+  maturity:     "1820000000",
+  rcfThreshold: "0",
+  entryGate:    ADDRESSES.gate,
+  seizureGate:  ADDRESSES.gate,
+};
+
+// MAX_TICK from TickLib.sol — represents par (price ≈ 1.0). Divisible by tickSpacing (4).
+const MAX_TICK = "5820";
+const REAL_MAKER = "0x8C6eE34413f0c7D472Ab157fbED84De1234EF54F" as `0x${string}`;
+
+/**
+ * Static fallback offers. Used only when the API server is unreachable. These have placeholder
+ * notaryData so fillOffer won't settle — the UI shows a warning banner in that case.
+ */
+export const STATIC_OFFERS: DemoOffer[] = [
   {
     id: "lender-100k-par",
     label: "Fixed-rate lend · 100,000 units @ par",
     side: "lend",
     rateBps: 0,
-    maker: "0x1111111111111111111111111111111111111111",
-    maxUnits: "100000000000",   // 100_000e6
-    expiry: now + ONE_HOUR,
+    maker: REAL_MAKER,
+    maxUnits: "100000000000",
+    expiry: Math.floor(Date.now() / 1000) + 3600,
     offer: {
       market: DEMO_MARKET,
-      buy: true,                // maker buys credit → they're the lender
-      maker: "0x1111111111111111111111111111111111111111",
+      buy: true,
+      maker: REAL_MAKER,
       start: "0",
-      expiry: String(now + ONE_HOUR),
+      expiry: String(Math.floor(Date.now() / 1000) + 3600),
       tick: MAX_TICK,
       group: "0x0000000000000000000000000000000000000000000000000000000000000000",
       callback: "0x0000000000000000000000000000000000000000",
       callbackData: "0x",
       receiverIfMakerIsSeller: "0x0000000000000000000000000000000000000000",
-      notary: "0x0000000000000000000000000000000000000000",  // demo — replace with real EcrecoverNotary
+      notary: ADDRESSES.notary,
       reduceOnly: false,
       maxUnits: "100000000000",
       maxAssets: "0",
@@ -84,21 +84,21 @@ export const DEMO_OFFERS: DemoOffer[] = [
     label: "Fixed-rate borrow · 25,000 units @ par",
     side: "borrow",
     rateBps: 0,
-    maker: "0x2222222222222222222222222222222222222222",
-    maxUnits: "25000000000",    // 25_000e6
-    expiry: now + ONE_HOUR,
+    maker: REAL_MAKER,
+    maxUnits: "25000000000",
+    expiry: Math.floor(Date.now() / 1000) + 3600,
     offer: {
       market: DEMO_MARKET,
-      buy: false,               // maker sells credit → they're the borrower
-      maker: "0x2222222222222222222222222222222222222222",
+      buy: false,
+      maker: REAL_MAKER,
       start: "0",
-      expiry: String(now + ONE_HOUR),
+      expiry: String(Math.floor(Date.now() / 1000) + 3600),
       tick: MAX_TICK,
       group: "0x0000000000000000000000000000000000000000000000000000000000000000",
       callback: "0x0000000000000000000000000000000000000000",
       callbackData: "0x",
-      receiverIfMakerIsSeller: "0x2222222222222222222222222222222222222222",
-      notary: "0x0000000000000000000000000000000000000000",
+      receiverIfMakerIsSeller: REAL_MAKER,
+      notary: ADDRESSES.notary,
       reduceOnly: false,
       maxUnits: "25000000000",
       maxAssets: "0",

@@ -8,127 +8,271 @@ html, body, #root { height: 100%; }
 
 body {
   @apply bg-ink-950 text-slate-100 font-sans antialiased;
-  background-image:
-    radial-gradient(at 10% 60%, rgba(14, 198, 181, 0.18) 0px, transparent 45%),
-    radial-gradient(at 90% 10%, rgba(30, 64, 175, 0.14) 0px, transparent 45%),
-    radial-gradient(at 50% 100%, rgba(14, 198, 181, 0.08) 0px, transparent 55%);
-  background-attachment: fixed;
+  /* NOTE: do not set "tnum" here. font-feature-settings overrides
+     font-variant-numeric on descendants, which silently disabled the
+     `tabular-nums` utility on every figure in the app. Numeric alignment is
+     opted into per-element via .tabular-nums / .stat-value instead. */
+  font-feature-settings: "cv11", "ss01";
 }
+
+::selection { background: rgba(34, 211, 238, 0.26); }
+
+:focus-visible {
+  outline: 2px solid theme("colors.brand.400");
+  outline-offset: 2px;
+  border-radius: 2px;
+}
+
+h1, h2, h3 { @apply text-slate-50; }
 
 /* Reusable primitives — kept small so components stay expressive with utilities. */
 @layer components {
+
+  /* ── Page shell ────────────────────────────────────────────────────── */
+  /* Every page, the header, the hero, and the footer hardcoded
+     `max-w-6xl mx-auto px-6` independently — eleven copies of one decision, so
+     the container width could not be changed without eleven edits staying in
+     lockstep (and a single missed one visibly misaligns page content against
+     the sticky header).
+
+     1152px also under-uses the viewport on a desktop dashboard: the market
+     cards, the offer book, and the four-across vitals row all have more content
+     than that measure comfortably carries. 1280px gives them room without
+     letting prose run past a readable line length (prose blocks constrain
+     themselves — see the footer's `max-w-sm` and HowItWorks' `max-w-prose`). */
+  .shell { @apply max-w-7xl mx-auto px-6; }
+
   /* ── Cards ─────────────────────────────────────────────────────────── */
   .card {
-    @apply relative rounded-lg border border-line bg-surface-solid/85 backdrop-blur-sm;
-    box-shadow: 0 4px 20px 0 rgba(0, 0, 0, 0.45), inset 0 1px 0 0 rgba(255, 255, 255, 0.04);
+    @apply relative rounded-xl border border-line bg-surface-solid;
+    box-shadow: theme("boxShadow.card");
   }
+  /* Hover is a border + elevation change only. The 1px lift the card used to
+     make was enough to nudge neighbouring text in a grid on hover, and the
+     motion read as playful rather than responsive. Premium software signals
+     interactivity by clarifying the edge, not by moving the surface. */
+  .card-interactive {
+    @apply card transition-[box-shadow,border-color] duration-200 ease-out;
+  }
+  .card-interactive:hover {
+    @apply border-line-strong;
+    box-shadow: theme("boxShadow.card-hover");
+  }
+  /* Accent-emphasized card. Per the theme's "elevation, not luminance" rule this
+     is a tinted border + wash, NOT a literal glow — same emphasis idiom the Hero
+     flow diagram uses for the compliance-gate node. */
   .card-glow {
-    @apply card;
-    box-shadow:
-      0 4px 20px 0 rgba(0, 0, 0, 0.45),
-      inset 0 1px 0 0 rgba(255, 255, 255, 0.04),
-      0 0 0 1px rgba(34, 211, 194, 0.28),
-      0 0 20px -2px rgba(14, 198, 181, 0.35);
+    @apply relative rounded-xl border border-brand-500/30 bg-brand-500/[0.05];
+    box-shadow: theme("boxShadow.card");
   }
+  /* Header/body/footer padding steps from 20px to 24px. At 20px the card
+     interior sat closer to its border than any two elements inside it sat to
+     each other, so the content read as pressed against the frame. 24px puts
+     the frame gap above the largest internal gap, which is what makes a card
+     feel composed rather than filled. */
   .card-header {
-    @apply flex items-center justify-between px-5 py-4 border-b border-line;
+    @apply flex items-center justify-between gap-4 px-6 py-4 border-b border-line;
   }
-  .card-title { @apply text-sm font-semibold tracking-wide text-slate-100; }
-  .card-body  { @apply p-5; }
+  .card-title { @apply text-h3 text-slate-100; }
+  .card-body  { @apply p-6; }
+  .card-footer { @apply flex items-center justify-between gap-4 px-6 py-3.5 border-t border-line text-body-sm text-subtle; }
 
   /* ── Buttons ───────────────────────────────────────────────────────── */
   .btn {
-    @apply inline-flex items-center justify-center gap-2 px-4 py-2.5 rounded-md
-           text-sm font-semibold transition duration-150
+    @apply inline-flex items-center justify-center gap-2 px-4 py-2.5 rounded-lg
+           text-body-sm font-semibold transition-colors duration-150
            disabled:opacity-40 disabled:cursor-not-allowed;
   }
+  /* One solid accent button per view. `brand-400` reads brighter against the
+     deeper ink base than `brand-500` did, so primary keeps its rank without
+     needing a larger size or a gradient to win attention. */
   .btn-primary {
-    @apply btn text-slate-950 relative overflow-hidden;
-    background:
-      linear-gradient(180deg, rgba(34, 211, 194, 1) 0%, rgba(14, 198, 181, 1) 100%);
-    box-shadow: 0 0 0 1px rgba(34, 211, 194, 0.5), 0 0 20px 0 rgba(14, 198, 181, 0.45);
+    @apply btn bg-brand-400 text-ink-950 hover:bg-brand-300;
   }
-  .btn-primary:hover:not(:disabled) {
-    box-shadow: 0 0 0 1px rgba(34, 211, 194, 0.7), 0 0 30px 0 rgba(14, 198, 181, 0.6);
-  }
+  /* Secondary is a bordered surface, not a lighter fill. This is the Stripe /
+     Linear split: primary is the only filled control, so secondary must be
+     legible as "also a button" without competing for the same rank. */
   .btn-secondary {
-    @apply btn bg-surface-raised/70 text-slate-100 border border-line
-           hover:border-brand-500/40 hover:text-white;
+    @apply btn bg-transparent text-slate-100 border border-line-strong
+           hover:bg-white/[0.05] hover:border-slate-400/35;
   }
-  .btn-ghost { @apply btn text-slate-300 hover:text-white hover:bg-white/5; }
+  .btn-ghost { @apply btn text-slate-300 hover:text-white hover:bg-white/[0.05]; }
+  .btn-sm { @apply px-3 py-1.5 text-[13px] rounded-md; }
 
-  /* ── Nav (icon-tab pill row) ───────────────────────────────────────── */
+  /* ── Nav ───────────────────────────────────────────────────────────── */
   .nav-tab {
-    @apply inline-flex items-center gap-2 px-3.5 py-2 rounded-md text-sm font-semibold
-           text-slate-400 border border-transparent transition;
+    @apply inline-flex items-center gap-2 px-3 py-1.5 rounded-md text-body-sm font-medium
+           text-muted whitespace-nowrap transition-colors duration-150;
   }
-  .nav-tab:hover { @apply text-slate-100 bg-white/5; }
+  .nav-tab:hover { @apply text-slate-100 bg-white/[0.04]; }
+  /* Stripe Dashboard's active tab is a contrast step, not a filled chip: the
+     label goes to full white and the surface takes the faintest possible
+     plate. The previous 9% wash plus inset ring made every tab look like a
+     button, which is why the bar read as a toolbar rather than navigation. */
   .nav-tab-active {
-    @apply nav-tab text-slate-100;
-    background: linear-gradient(180deg, rgba(14, 198, 181, 0.14) 0%, rgba(14, 198, 181, 0.04) 100%);
-    border-color: rgba(34, 211, 194, 0.5);
-    box-shadow: 0 0 0 1px rgba(34, 211, 194, 0.25), 0 0 16px -2px rgba(14, 198, 181, 0.5);
+    @apply nav-tab text-white bg-white/[0.06];
   }
-  .nav-tab-icon {
-    @apply w-4 h-4 flex-shrink-0;
-  }
+  .nav-tab-icon { @apply w-4 h-4 flex-shrink-0 opacity-70; }
 
-  /* ── Step indicator (numbered circles with connector) ──────────────── */
-  .step-row {
-    @apply flex items-center justify-center gap-2;
-  }
+
+  /* ── Step indicator ────────────────────────────────────────────────── */
+  .step-row { @apply flex items-center justify-center gap-2; }
   .step-dot {
-    @apply w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold
-           border border-line bg-surface-raised text-slate-500;
+    @apply w-8 h-8 rounded-full flex items-center justify-center text-body-sm font-bold
+           border border-line-strong bg-surface-raised text-subtle;
   }
   .step-dot-active {
-    @apply step-dot text-slate-950;
-    background: radial-gradient(circle at 50% 40%, #4feadb 0%, #0ec6b5 100%);
-    border-color: rgba(34, 211, 194, 0.6);
-    box-shadow: 0 0 0 3px rgba(34, 211, 194, 0.15), 0 0 20px 0 rgba(14, 198, 181, 0.55);
+    @apply step-dot text-ink-950 bg-brand-400 border-brand-400;
   }
   .step-dot-done {
     @apply step-dot text-brand-300 border-brand-500/40 bg-brand-500/10;
   }
-  .step-label {
-    @apply text-[11px] font-medium tracking-wide text-slate-500;
-  }
+  .step-label { @apply text-micro font-semibold uppercase text-subtle; }
   .step-label-active { @apply step-label text-brand-300; }
-  .step-connector {
-    @apply h-px w-14 bg-gradient-to-r from-line via-brand-500/30 to-line;
-  }
+  .step-connector { @apply h-px w-14 bg-line-strong; }
 
   /* ── Stats ─────────────────────────────────────────────────────────── */
-  .stat-label { @apply text-[11px] font-semibold tracking-widest uppercase text-muted; }
-  .stat-value { @apply text-2xl font-semibold text-slate-50 tabular-nums; }
+  /* Labels drop from `muted` to `subtle` and values gain weight. A metric block
+     is a two-tier hierarchy read in one glance: the label is the key you
+     already know you want, the figure is the answer. Making them near-equal in
+     contrast — as `muted` + semibold did — forces the eye to read the label
+     first every time, which is what made dense metric rows feel slow. */
+  .stat-label { @apply text-micro font-semibold uppercase text-subtle; }
+  .stat-value { @apply text-[1.375rem] leading-tight font-semibold text-white tabular-nums tracking-[-0.02em]; }
   .stat-value-up   { @apply stat-value text-ok; }
   .stat-value-down { @apply stat-value text-bad; }
-  .stat-value-pop  { @apply stat-value text-pop; }
-  .stat-hint  { @apply text-xs text-subtle mt-1; }
+  .stat-value-pop  { @apply stat-value text-brand-300; }
+  .stat-hint  { @apply text-body-sm text-subtle mt-1; }
 
   /* ── Fields ────────────────────────────────────────────────────────── */
   .field       { @apply block; }
-  .field-label { @apply block text-xs font-semibold tracking-widest uppercase text-muted mb-1.5; }
+  .field-label { @apply block text-micro font-semibold uppercase text-muted mb-1.5; }
   .field-input {
-    @apply w-full bg-ink-900/70 border border-line rounded-md px-3 py-2.5
-           text-sm font-mono text-slate-100 outline-none
-           focus:border-brand-500 focus:ring-1 focus:ring-brand-500 placeholder:text-subtle;
+    @apply w-full bg-ink-900 border border-line-strong rounded-lg px-3 py-2.5
+           text-body text-slate-100 outline-none transition-colors
+           focus:border-brand-400 placeholder:text-subtle;
   }
 
-  /* ── Badges ────────────────────────────────────────────────────────── */
-  .badge      { @apply inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full
-                       text-[10px] font-bold tracking-widest uppercase; }
-  .badge-ok   { @apply badge bg-ok/10 text-ok; }
-  .badge-warn { @apply badge bg-warn/10 text-warn; }
-  .badge-bad  { @apply badge bg-bad/10 text-bad; }
-  .badge-info { @apply badge bg-brand-500/10 text-brand-300; }
+  /* ── Badges & status ───────────────────────────────────────────────── */
+  /* Badges gain a hairline border matched to their tone. A flat 10% tint on a
+     dark ground has almost no edge, so status chips dissolved into whatever
+     surface they sat on; the border is what makes them read as discrete
+     tokens of state rather than coloured text. Weight also drops from
+     semibold to medium — these are labels, not calls to action. */
+  .badge      { @apply inline-flex items-center gap-1.5 px-2 py-0.5 rounded
+                       border text-micro font-medium uppercase whitespace-nowrap; }
+  .badge-ok      { @apply badge bg-ok/[0.08]      text-ok       border-ok/25; }
+  .badge-warn    { @apply badge bg-warn/[0.08]    text-warn     border-warn/25; }
+  .badge-bad     { @apply badge bg-bad/[0.08]     text-bad      border-bad/25; }
+  .badge-info    { @apply badge bg-brand-500/[0.08] text-brand-300 border-brand-500/25; }
+  .badge-neutral { @apply badge bg-white/[0.04]   text-muted    border-line-strong; }
+
+  .status-dot { @apply inline-block w-1.5 h-1.5 rounded-full flex-shrink-0; }
+  .status-dot-ok   { @apply status-dot bg-ok; }
+  .status-dot-warn { @apply status-dot bg-warn; }
+  .status-dot-bad  { @apply status-dot bg-bad; }
+  .status-dot-idle { @apply status-dot bg-subtle; }
 
   .divider { @apply border-t border-line; }
-  .link { @apply text-brand-300 hover:text-brand-200 transition; }
+  .link { @apply text-brand-300 hover:text-brand-200 transition-colors; }
 
-  /* ── Chart gradient area (decorative, no chart lib) ────────────────── */
-  .chart-fill {
-    background: linear-gradient(180deg, rgba(34, 211, 194, 0.32) 0%, rgba(34, 211, 194, 0) 100%);
+  /* Inline code. Was styled ad hoc as `text-brand-300` in some places and
+     `text-slate-200` in others — the first spends the interactive accent on
+     non-interactive text, so a `<code>` sample looked like a link. Code now has
+     one treatment everywhere: a tinted plate that separates it from prose
+     without borrowing the affordance colour. */
+  .code-inline {
+    @apply font-mono text-[0.9em] px-1 py-0.5 rounded
+           bg-white/[0.06] text-slate-200;
+  }
+
+  /* ── Tabs (underline style) ────────────────────────────────────────── */
+  .tab-btn {
+    @apply px-3.5 py-2.5 -mb-px border-b-2 border-transparent text-body-sm font-medium
+           text-slate-400 hover:text-slate-100 transition-colors whitespace-nowrap;
+  }
+  .tab-btn-active { @apply tab-btn border-brand-400 text-slate-50; }
+
+  /* ── Table ─────────────────────────────────────────────────────────── */
+  .table-wrap { @apply overflow-x-auto rounded-xl border border-line; }
+  .table { @apply w-full text-left border-collapse; }
+  .table thead th {
+    @apply px-4 py-3 text-micro font-semibold uppercase text-muted bg-white/[0.02]
+           border-b border-line whitespace-nowrap;
+  }
+  .table tbody td { @apply px-4 py-3.5 text-body-sm text-slate-200 border-b border-line; }
+  .table tbody tr:last-child td { @apply border-b-0; }
+  .table tbody tr { @apply transition-colors; }
+  .table-row-hover tbody tr:hover { @apply bg-white/[0.025]; }
+
+  /* ── Skeleton loading ──────────────────────────────────────────────── */
+  .skeleton {
+    @apply relative overflow-hidden rounded-md bg-white/[0.06];
+  }
+  .skeleton::after {
+    content: "";
+    @apply absolute inset-0 -translate-x-full animate-shimmer;
+    background-image: linear-gradient(90deg, transparent, rgba(255,255,255,0.06), transparent);
+  }
+
+  /* ── Empty states ──────────────────────────────────────────────────── */
+  .empty-state {
+    @apply flex flex-col items-center justify-center text-center gap-3 py-14 px-6;
+  }
+  .empty-state-icon {
+    @apply w-11 h-11 rounded-full bg-white/[0.05] border border-line flex items-center justify-center text-subtle;
+  }
+  .empty-state-title { @apply text-body font-semibold text-slate-200; }
+  .empty-state-body { @apply text-body-sm text-subtle max-w-sm; }
+
+  /* ── Tooltip (CSS-only, [data-tip]) ────────────────────────────────── */
+  [data-tip] { @apply relative; }
+  [data-tip]::after {
+    content: attr(data-tip);
+    @apply pointer-events-none absolute left-1/2 bottom-full mb-2 -translate-x-1/2 whitespace-nowrap
+           rounded-md bg-ink-700 border border-line-strong px-2.5 py-1.5 text-micro font-medium
+           normal-case text-slate-200 opacity-0 transition-opacity duration-150 z-50;
+    box-shadow: theme("boxShadow.popover");
+  }
+  [data-tip]:hover::after, [data-tip]:focus-visible::after { @apply opacity-100; }
+
+  /* ── Dropdown menu ─────────────────────────────────────────────────── */
+  .dropdown-panel {
+    @apply absolute right-0 mt-2 min-w-[13rem] rounded-xl border border-line-strong bg-surface-raised
+           p-1.5 animate-fade-in-up z-50;
+    box-shadow: theme("boxShadow.popover");
+  }
+  .dropdown-item {
+    @apply flex items-center gap-2.5 w-full text-left px-3 py-2 rounded-lg text-body-sm text-slate-200
+           hover:bg-white/[0.06] transition-colors cursor-pointer;
+  }
+
+  /* ── Modal ─────────────────────────────────────────────────────────── */
+  .modal-overlay {
+    @apply fixed inset-0 z-50 flex items-center justify-center bg-ink-950/75 p-4 animate-fade-in;
+  }
+  .modal-panel {
+    @apply w-full max-w-md rounded-2xl border border-line-strong bg-surface-raised animate-fade-in-up;
+    box-shadow: theme("boxShadow.popover");
+  }
+
+  /* ── Definition rows ───────────────────────────────────────────────── */
+  /* Label-left / value-right pairs stacked on a shared rule. This is the
+     idiom institutional products use for terms and settlement detail: it
+     scans vertically as a ledger, where a grid of centred stat blocks scans
+     as a marketing panel. Used by the market card's terms section. */
+  .def-row {
+    @apply flex items-baseline justify-between gap-6 py-2.5;
+  }
+  .def-row + .def-row { @apply border-t border-line; }
+  .def-label { @apply text-body-sm text-muted flex-shrink-0; }
+  .def-value { @apply text-body-sm font-medium text-slate-100 tabular-nums text-right; }
+
+  /* ── Section heading ───────────────────────────────────────────────── */
+  /* An uppercase micro label above a rule. Used to separate zones inside a
+     card without spending a card-title-sized step on them. */
+  .section-label {
+    @apply text-micro font-semibold uppercase text-subtle;
   }
 }
 

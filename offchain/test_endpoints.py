@@ -62,7 +62,10 @@ def section(title: str) -> None:
 
 client = CleanverseClient.from_env()
 CHAIN = os.environ.get("CLEANVERSE_CHAIN", "base")
-POOL = os.environ.get("CLEANVERSE_POOL_ADDRESS", "")
+# The REST `pool` param is the registered *contract* (Covenant's gate), not the validator.
+# CLEANVERSE_POOL_ADDRESS is a legacy alias for CLEANVERSE_VALIDATOR_ADDRESS — using it here made
+# every ★ read target the validator itself, which is not a registered pool.
+POOL = os.environ.get("COVENANT_GATE_ADDRESS", "")
 WALLET = os.environ.get("CLEANVERSE_TEST_WALLET", "")
 
 print("\033[1mCleanverse endpoint conformance\033[0m")
@@ -96,9 +99,9 @@ check(
 section("2. ★ Validator reads — the three the on-chain gate mirrors")
 
 if not POOL:
-    skip("★ /validator/is_register", "CLEANVERSE_POOL_ADDRESS unset")
-    skip("★ /validator/is_paused", "CLEANVERSE_POOL_ADDRESS unset")
-    skip("/validator/rules", "CLEANVERSE_POOL_ADDRESS unset")
+    skip("★ /validator/is_register", "COVENANT_GATE_ADDRESS unset")
+    skip("★ /validator/is_paused", "COVENANT_GATE_ADDRESS unset")
+    skip("/validator/rules", "COVENANT_GATE_ADDRESS unset")
 else:
     # ── is_register → pool.isRegistered()
     try:
@@ -154,7 +157,7 @@ else:
 
 # ── verify → pool.verify(user)
 if not (POOL and WALLET):
-    skip("★ /validator/verify", "CLEANVERSE_POOL_ADDRESS or CLEANVERSE_TEST_WALLET unset")
+    skip("★ /validator/verify", "COVENANT_GATE_ADDRESS or CLEANVERSE_TEST_WALLET unset")
 else:
     verdict = client.verify_user(chain=CHAIN, pool=POOL, user=WALLET)
     check(
@@ -191,7 +194,7 @@ if POOL:
         f"valid={v.valid} available={v.available} detail={v.detail[:120]}",
     )
 else:
-    skip("Unknown wallet is never attestable", "CLEANVERSE_POOL_ADDRESS unset")
+    skip("Unknown wallet is never attestable", "COVENANT_GATE_ADDRESS unset")
 
 # An unregistered pool address must not yield clearance for anyone.
 UNREGISTERED_POOL = "0x000000000000000000000000000000000000bEEF"

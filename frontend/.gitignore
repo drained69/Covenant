@@ -2,3 +2,6 @@ node_modules/
 dist/
 tsconfig.tsbuildinfo
 .DS_Store
+
+# Stray tsc output next to sources — Vite resolves .js before .ts and would serve stale code.
+src/**/*.js

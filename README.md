@@ -53,7 +53,7 @@ Cleanverse and Covenant meet at exactly one point: the gate contract. Everything
    │ every position-increasing tx
    │
    ▼
-   Covenant market  ──▶  entryGate.canIncreaseCredit/Debt  ──▶  CleanversePoolGate  ──▶  pool.verify(...)
+   Covenant market  ──▶  entryGate.canIncreaseCredit/Debt  ──▶  CleanversePoolGate  ──▶  validator.complianceVerify(gate, user)
                      ▲
                      └── seizureGate.canLiquidate ──▶ same path for liquidators
 ```
@@ -220,15 +220,15 @@ The recommended deployment for a regulated Covenant market pairs the market gate
 
 ```
    deposit(USDC) ─▶ WrappedAToken ─mint waUSDC─▶ verified recipient
-                        │                        (pool.verify(to) must hold, else revert)
+                        │                        (validator.complianceVerify(waUSDC, to) must hold)
                         │
    Covenant.flashLoan([waUSDC], amt, callback):
      safeTransfer(waUSDC → callback)  ─▶ WrappedAToken._transfer
                                              │
-                                             ├── isExempt(callback)?      no ─┐
-                                             ├── pool.isRegistered()?     yes │
-                                             ├── pool.paused()?           no  ├─▶ pool.verify(callback)
-                                             └── any read fails?          → revert RecipientNotCompliant
+                                             ├── isExempt(callback)?               no ─┐
+                                             ├── validator.isRegistered(waUSDC)?   yes │
+                                             │                                          ├─▶ validator.complianceVerify(waUSDC, callback)
+                                             └── any read fails?                   → revert RecipientNotCompliant
 ```
 
 Design invariants (mirrored point-for-point with `CleanversePoolGate`, so token and gate cannot disagree):
@@ -244,7 +244,7 @@ To deploy the compliant loan token:
 // 1. Deploy the wrapper against native USDC and your pool.
 WrappedAToken waUSDC = new WrappedAToken(
     IERC20(NATIVE_USDC),
-    ICleanversePool(POOL),
+    IAPassComplianceValidator(VALIDATOR),
     OWNER_MULTISIG,
     "Wrapped Access USDC",
     "waUSDC",
@@ -335,9 +335,9 @@ The rate is locked in at issuance. See `Covenant.fillOffer`.
 For a market with `entryGate != address(0)`, a position increase requires:
 
 ```
-CleanversePool(pool).isRegistered() == true
-  ∧ CleanversePool(pool).paused()   == false
-  ∧ CleanversePool(pool).verify(participant) == true
+validator.isRegistered(address(gate)) == true
+  ∧ validator.complianceVerify(address(gate), participant) == true
+                                    // pause is folded into complianceVerify per CCP V2
 ```
 
 Every read is a gas-bounded `staticcall`; any failure resolves to "not eligible" (fail-closed). Only *increases* are gated — repay and withdraw stay open. See `CleanversePoolGate._eligible`.
@@ -363,9 +363,9 @@ Verified against the UAT gateway, `https://uatapi.cleanverse.com/api/cooperate`.
 | Capability | Endpoint | On-chain equivalent | Status |
 |-----------|----------|---------------------|--------|
 | Authentication (`api-id` header) | — | — | Working — `code: "0000"` |
-| ★ Pool registration check | `POST /validator/is_register` | `pool.isRegistered()` | Working |
-| ★ Pool pause state | `POST /validator/is_paused` | `pool.paused()` | Working |
-| ★ User eligibility | `POST /validator/verify` | `pool.verify(account)` | Reachable; returns `12027` until the wallet holds an A-Pass |
+| ★ Pool registration check | `POST /validator/is_register` | `validator.isRegistered(pool)` | Working |
+| ★ Pool pause state | `POST /validator/is_paused` | (folded into `complianceVerify`) | Working — no separate on-chain call |
+| ★ User eligibility | `POST /validator/verify` | `validator.complianceVerify(pool, user)` | Reachable; returns `12027` until the wallet holds an A-Pass |
 | Pool rules incl. country allow/deny | `POST /validator/rules` | (informational; enforced inside `verify`) | Working |
 | A-Pass lookup | `POST /query_apass` | — | Implemented, not yet exercised |
 | A-Pass issue / freeze | `POST /generate_apass`, `/update_status` | — | Implemented (AES), not yet exercised |
@@ -431,12 +431,99 @@ cp .env.example .env
 
 Populate `.env` with your Cleanverse application ID and API key. `.env` is gitignored.
 
-## Design constraints
+## Design choices
 
-Two properties of the gate interface shape what Covenant can and cannot enforce on-chain. They are documented here rather than glossed over:
+Every load-bearing decision in Covenant, with the trade-off it makes. Each item is a design choice, not an implementation detail — none of these can be flipped without changing what the product *is*.
 
-- **Gates are per-account, not per-pair.** The engine calls `canIncreaseCredit(buyer)` and `canIncreaseDebt(seller)` independently, so a gate cannot observe the counterparty. Per-account policy — identity validity, jurisdiction, sanctions, asset eligibility — is fully enforceable. Genuine pairwise checks such as Travel Rule counterparty matching require either an off-chain pre-clearance step or the engine's offer-notarization path, and are treated as a separate workstream.
-- **Gates bind at market creation.** A market's identity includes its gate addresses, so compliance policy cannot be retrofitted or silently changed on a live market. Policy evolution happens inside the Cleanverse registry that the gate reads, not by replacing the gate.
+### 1. Fixed-maturity credit, not variable-rate
+
+- **Choice.** Every market has a hard maturity timestamp. Rates are locked at issuance; there is no utilization curve, no `apy` recomputation.
+- **Why.** Institutions cannot underwrite variable-rate exposure on their balance sheet without daily mark-to-market machinery. A fixed-term note is a first-class asset class they already know how to book.
+- **Trade-off.** No secondary market for open positions in this repo — positions settle at maturity or via `seize`. That's the point: variable-rate lending is already a solved problem for retail, and it isn't what regulated capital wants.
+
+### 2. Offers signed off-chain, filled on-chain
+
+- **Choice.** A lender or borrower signs an EIP-712 `Offer` struct with a notary-verified signature; the counterparty calls `fillOffer` on-chain, passing the offer plus its signature.
+- **Why.** Publishing 1,000 offers costs zero gas. A lender pays only when a trade actually happens. Marketplaces stay pluggable: any channel that can serve a signed JSON blob works.
+- **Trade-off.** Offer discovery is an off-chain concern. Covenant does not ship a matching engine — that's a marketplace's job.
+
+### 3. Gate hooks are `view` predicates, not `revert`-ing external calls
+
+- **Choice.** `IEnterGate.canIncreaseCredit(account) returns (bool)`. Any failure inside the gate resolves to `false`; the engine surfaces the market's own domain error (`LenderIneligible` / `BorrowerIneligible`), never an opaque revert from compliance infrastructure.
+- **Why.** A compliance provider must not be able to brick a market by reverting. The gate is a *question*, not a *guard*.
+- **Trade-off.** The gate cannot enforce structured errors of its own; every negative answer looks the same. Acceptable — the market layer is the right place for the domain error.
+
+### 4. Only *increases* in exposure are gated
+
+- **Choice.** `canIncreaseCredit`, `canIncreaseDebt`, `canLiquidate` fire on new lending, new borrowing, and liquidation. `repay`, `withdraw`, `withdrawCollateral` are ungated.
+- **Why.** Compliance revocation must never strand committed capital. A borrower whose passport is frozen must still be able to repay; a lender with a lapsed credential must still be able to redeem at maturity.
+- **Trade-off.** A wallet that becomes non-compliant can still hold an open position — this is correct behaviour, not a hole.
+
+### 5. Gate hooks are per-account, not per-pair
+
+- **Choice.** `canIncreaseCredit(buyer)` and `canIncreaseDebt(seller)` are two independent calls; neither can observe the counterparty.
+- **Why.** Per-account policy is what identity, jurisdiction, sanctions, and asset-eligibility rules actually enforce. FATF R.16 Travel Rule counterparty matching is pair-shaped, but that check happens off-chain at pre-clearance time in the real institutional workflow.
+- **Trade-off.** Pairwise on-chain checks are not enforceable at the gate layer. If we ever need them, they belong in the notary path (which already sees both sides via the offer struct).
+
+### 6. Gate address is part of the market's identity
+
+- **Choice.** `id = keccak(gate, seizureGate, loanToken, collateralParams, maturity, rcfThreshold, covenant, chainId)`. Change any gate address and you get a new market id.
+- **Why.** A market's compliance policy cannot be silently retrofitted or swapped mid-life. A "compliant" market and an "open" market on the same loan token are provably different markets, and positions cannot leak between them.
+- **Trade-off.** Migrating to a new gate implementation creates a new market — no in-place upgrade. This is a feature: audit trails cannot be rewritten.
+
+### 7. Every external read is a bounded-gas staticcall
+
+- **Choice.** Both the gate and the wrapped-A-token forward `VALIDATOR_GAS_LIMIT = 150_000` per read and treat every failure (revert, malformed data, gas exhaustion, no code) as `false`.
+- **Why.** Without a gas cap, a griefing validator could consume all remaining gas and force the enclosing trade to revert for lack of gas — converting a per-account compliance denial into a market-wide denial-of-service.
+- **Trade-off.** A rich validator that needs > 150k gas per read would need us to raise the cap. This is deliberate: a compliance answer should be cheap; if it isn't, the interface is wrong.
+
+### 8. Fail-closed, always
+
+- **Choice.** Any read failure resolves to *not eligible*. Unavailable verification is never treated as clearance.
+- **Why.** The alternative (fail-open) means a compromised or unreachable validator quietly grants everyone access. The blast radius of a false negative (a legitimate user's trade reverts) is bounded and self-healing; a false positive (a sanctioned actor slips through) is a compliance breach.
+- **Trade-off.** During a Cleanverse outage, new positions cannot open on gated markets. Existing positions remain settleable. This is the correct availability posture for a compliance product.
+
+### 9. Compliance runs at two layers, not one
+
+- **Choice.** The gate answers "may this account open a position?" (per-market); `WrappedAToken` answers "may this account receive these tokens?" (per-transfer, at the token contract). Both use the *same* validator, the *same* staticcall shape, the *same* gas cap, the *same* fail-closed rule.
+- **Why.** The gate cannot close the `flashLoan` surface — flash loans live on the Covenant core and span markets. Moving the check to the token layer closes it: a non-compliant flash-loan callback reverts inside `safeTransfer` before it runs. The gate becomes belt-and-suspenders; the token is the belt.
+- **Trade-off.** Two contracts to keep aligned. The alignment is mechanical: both call `IAPassComplianceValidator.complianceVerify(address(this), account)`.
+
+### 10. `WrappedAToken` is a first-party contract, not an off-the-shelf Cleanverse A-Token
+
+- **Choice.** We ship our own compliance-aware ERC-20 wrapper instead of consuming Cleanverse's `POST /atoken/launch_wrapped_atoken` output.
+- **Why.** The wrapper needs to be provably fail-closed and gas-bounded — properties this repo tests exhaustively — and needs to expose a documented exempt set for protocol infrastructure (the Covenant core, bundlers). We know exactly what our wrapper does; we don't have to trust an off-the-shelf issuance to have the same properties.
+- **Trade-off.** We're now the maintainer of a compliance-aware token contract. Its footprint is 260 lines and its behaviour is under formal invariants — acceptable.
+
+### 11. Withdraw path on `WrappedAToken` is intentionally ungated
+
+- **Choice.** `withdraw(assets, receiver)` releases the origin token without a compliance check. Same rule as the engine's ungated exits.
+- **Why.** A holder whose credential is later frozen must be able to reclaim their locked origin balance. Otherwise credential revocation confiscates assets, which no regulator would sign off on.
+- **Trade-off.** In principle a frozen wallet can burn `waUSDC` for `USDC`. That's fine: the freeze applies to *new* activity, not to unwinding existing holdings.
+
+### 12. CCP V2 (`IAPassComplianceValidator`), not custom compliance
+
+- **Choice.** The gate reads Cleanverse's on-chain validator with the exact selectors from the CCP V2 integration guide (`isRegistered(pool)`, `complianceVerify(pool, user)`, `RuleV2` struct).
+- **Why.** Building a bespoke identity schema means becoming an identity provider — out of scope. Reading a standardized validator means Cleanverse can evolve rules server-side (new countries, new tiers) without any redeploy on our side.
+- **Trade-off.** We're bound to Cleanverse's rule shape. This is exactly right — the whole product thesis is that compliance should be the identity provider's job, not the lending protocol's.
+
+### 13. `CovenantRegistry` as an escape hatch (Path B)
+
+- **Choice.** In addition to reading Cleanverse directly (Path A), the repo ships an attestation registry (Path B) where authorised attesters project Cleanverse verdicts on-chain. `CovenantGate` reads this registry via the same fail-closed shape.
+- **Why.** Not every target chain has a Cleanverse validator deployed yet. Path B unblocks deployments on those chains while preserving the fail-closed / staticcall / immutable-per-market properties. It also lets Covenant layer *additional* per-action policy on top of Cleanverse's verdict.
+- **Trade-off.** Path B introduces attesters as a trusted role. Their scope is narrow — write attestations only, cannot move funds, cannot alter markets — but it is trust nonetheless. Prefer Path A wherever possible.
+
+### 14. Single-contract mode registration, not factory mode
+
+- **Choice.** Each `CleanversePoolGate` is registered with the validator individually via `POST /api/cooperate/validator/register` (CCP V2 §5), not through a factory holding `REGISTER_ROLE`.
+- **Why.** A gate binds to one compliance profile. If you want two profiles, deploy two gates and two markets. Factory mode is the right shape for a DEX with hundreds of pools; single-contract mode is the right shape for a lending protocol whose markets are deliberately few.
+- **Trade-off.** One-time API call per gate deployment. Documented in `todo.md` §Part 1 step 4.
+
+### 15. Deterministic market storage via `SSTORE2`
+
+- **Choice.** Market parameters are stored as bytecode at a deterministic CREATE2 address, and the market id hashes that bytecode. Reads never touch storage slots — they decode from the market code.
+- **Why.** Storing the full `Market` struct in storage would cost O(n_collaterals) SLOADs per position update. Encoding it as bytecode makes market reads a single CODECOPY and keeps position operations cheap.
+- **Trade-off.** Market parameters are immutable. This is the intended semantics — an "editable" market is a different market.
 
 ## Positioning
 
@@ -444,6 +531,9 @@ Covenant is infrastructure, not a licensed financial institution. It does not cu
 
 ## Documentation
 
-- [Business plan](./business_plan.pdf)
-- [Cleanverse API documentation](https://docs.cleanverse.com/)
+- [Core pool math and invariants](./docs/CoreMath.md)
+- [Codebase walkthrough (plain language)](./Explanation.md)
 - [Off-chain signing flow](./offchain/SIGNING.md)
+- [Production-readiness plan and chain recommendation](./todo.md)
+- [Business plan](./business_plan.pdf)
+- [Cleanverse API documentation](https://docs.cleanverse.com/) · [CCP V2 integration guide (PDF)](https://cleanverse.com/)

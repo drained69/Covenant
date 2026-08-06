@@ -6,15 +6,15 @@ import {ICovenant, Market, Offer, CollateralParams} from "../../src/interfaces/I
 import {LIQUIDATION_CURSOR_LOW, ORACLE_PRICE_SCALE} from "../../src/libraries/ConstantsLib.sol";
 import {MAX_TICK} from "../../src/libraries/TickLib.sol";
 import {CleanversePoolGate} from "../../src/compliance/CleanversePoolGate.sol";
-import {ICleanversePool} from "../../src/compliance/interfaces/ICleanversePool.sol";
+import {IAPassComplianceValidator} from "../../src/compliance/interfaces/IAPassComplianceValidator.sol";
 import {BaseTest, MAX_TEST_AMOUNT} from "../BaseTest.sol";
-import {MockCleanversePool} from "./mocks/MockCleanversePool.sol";
+import {MockAPassValidator} from "./mocks/MockAPassValidator.sol";
 
-/// @notice Proves the Cleanverse pool gate actually blocks and permits `fillOffer` inside the real lending
-/// protocol. Focuses on Cleanverse-specific states — paused pool, reverting pool, unregistered pool —
-/// that the existing generic `GateTest` does not cover.
+/// @notice Proves the Cleanverse-backed gate actually blocks and permits `fillOffer` inside the real
+/// lending protocol. Focuses on the states the generic `GateTest` does not cover — paused pool,
+/// reverting validator, unregistered pool — projected through CCP V2's validator interface.
 contract CleanversePoolIntegrationTest is BaseTest {
-    MockCleanversePool internal pool;
+    MockAPassValidator internal validator;
     CleanversePoolGate internal gate;
 
     Market internal gatedMarket;
@@ -25,8 +25,9 @@ contract CleanversePoolIntegrationTest is BaseTest {
     function setUp() public override {
         super.setUp();
 
-        pool = new MockCleanversePool();
-        gate = new CleanversePoolGate(pool);
+        validator = new MockAPassValidator();
+        gate = new CleanversePoolGate(validator, address(this));
+        validator.setRegistered(address(gate), true);
 
         // A market whose gate is the Cleanverse-backed one. Because gates are part of the market's
         // identity, this is a distinct market from any non-gated variant on the same loan token — the
@@ -85,9 +86,9 @@ contract CleanversePoolIntegrationTest is BaseTest {
         units = bound(units, 1, MAX_TEST_AMOUNT * 3 / 4);
         collateralize(gatedMarket, borrower, units);
 
-        pool.setVerified(lender, true);
-        pool.setVerified(borrower, true);
-        pool.setPaused(true);
+        validator.setVerified(address(gate), lender, true);
+        validator.setVerified(address(gate), borrower, true);
+        validator.setPaused(address(gate), true);
 
         // The pool being paused must deny even a wallet whose eligibility would otherwise pass, and it
         // must surface as the market's own error rather than an opaque revert from Cleanverse.
@@ -99,9 +100,9 @@ contract CleanversePoolIntegrationTest is BaseTest {
         units = bound(units, 1, MAX_TEST_AMOUNT * 3 / 4);
         collateralize(gatedMarket, borrower, units);
 
-        pool.setVerified(lender, true);
-        pool.setVerified(borrower, true);
-        pool.setReverting(true);
+        validator.setVerified(address(gate), lender, true);
+        validator.setVerified(address(gate), borrower, true);
+        validator.setReverting(true);
 
         // A Cleanverse outage denies new positions but does not corrupt the market. The lending
         // protocol's error is what surfaces, not the pool's revert.
@@ -113,9 +114,9 @@ contract CleanversePoolIntegrationTest is BaseTest {
         units = bound(units, 1, MAX_TEST_AMOUNT * 3 / 4);
         collateralize(gatedMarket, borrower, units);
 
-        pool.setVerified(lender, true);
-        pool.setVerified(borrower, true);
-        pool.setRegistered(false);
+        validator.setVerified(address(gate), lender, true);
+        validator.setVerified(address(gate), borrower, true);
+        validator.setRegistered(address(gate), false);
 
         // A gate pointing at a pool that was never registered on Cleanverse is a misconfiguration; deny
         // until the operator fixes it, rather than silently trading.
@@ -129,8 +130,8 @@ contract CleanversePoolIntegrationTest is BaseTest {
         // Open a position while both parties are verified.
         units = bound(units, 1e6, MAX_TEST_AMOUNT / 2);
         collateralize(gatedMarket, borrower, units);
-        pool.setVerified(lender, true);
-        pool.setVerified(borrower, true);
+        validator.setVerified(address(gate), lender, true);
+        validator.setVerified(address(gate), borrower, true);
         fillOffer(units, lender, borrowerOffer);
 
         assertGt(covenant.debtOf(gatedId, borrower), 0, "borrower has debt");
@@ -138,7 +139,7 @@ contract CleanversePoolIntegrationTest is BaseTest {
         // Then revoke the borrower's verification — in Cleanverse terms, the A-Pass is frozen or has
         // expired. New borrowing must be blocked, but repayment must still work: only *increases* are
         // gated, so a wallet losing eligibility can still exit its position.
-        pool.setVerified(borrower, false);
+        validator.setVerified(address(gate), borrower, false);
 
         deal(address(loanToken), borrower, units);
         vm.startPrank(borrower);
@@ -155,7 +156,7 @@ contract CleanversePoolIntegrationTest is BaseTest {
         units = bound(units, 1, MAX_TEST_AMOUNT * 3 / 4);
         collateralize(gatedMarket, borrower, units);
 
-        pool.setVerified(lender, true); // borrower is not
+        validator.setVerified(address(gate), lender, true); // borrower is not
 
         vm.expectRevert(ICovenant.BorrowerIneligible.selector);
         fillOffer(units, lender, borrowerOffer);
@@ -165,7 +166,7 @@ contract CleanversePoolIntegrationTest is BaseTest {
         units = bound(units, 1, MAX_TEST_AMOUNT * 3 / 4);
         collateralize(gatedMarket, borrower, units);
 
-        pool.setVerified(borrower, true); // lender is not
+        validator.setVerified(address(gate), borrower, true); // lender is not
 
         vm.expectRevert(ICovenant.LenderIneligible.selector);
         fillOffer(units, borrower, lenderOffer);
@@ -177,8 +178,8 @@ contract CleanversePoolIntegrationTest is BaseTest {
         units = bound(units, 1, MAX_TEST_AMOUNT * 3 / 4);
         collateralize(gatedMarket, borrower, units);
 
-        pool.setVerified(lender, true);
-        pool.setVerified(borrower, true);
+        validator.setVerified(address(gate), lender, true);
+        validator.setVerified(address(gate), borrower, true);
         fillOffer(units, lender, borrowerOffer);
 
         assertGt(covenant.creditOf(gatedId, lender), 0, "lender received credit");
