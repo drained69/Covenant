@@ -20,6 +20,14 @@ export type DocsNavItem = {
   blurb: string;
 };
 
+/*
+  The repository is public, so the docs link to it rather than to paths a reader
+  cannot open from a browser. It lives here rather than in the two pages that
+  cite it, because a URL duplicated across files is a URL that rots in one of
+  them first.
+*/
+export const REPO_URL = "https://github.com/drained69/covenant";
+
 export const DOCS_NAV: DocsNavItem[] = [
   {
     to: "/docs/how-it-works",

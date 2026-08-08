@@ -4,6 +4,24 @@
 
 Covenant makes fixed-rate, fixed-maturity credit markets usable by regulated institutions. It combines a fixed-maturity credit engine with a gate layer that enforces identity verification, jurisdictional policy, and sanctions screening *inside* the market's own access-control path — not as an off-chain side process.
 
+Live on **Monad Testnet** (chain id `10143`) against Cleanverse's CVI Compliance Validator. Addresses are in [Deployment](#deployment); the running interface is under [`frontend/`](#getting-started).
+
+---
+
+## Contents
+
+| Section | What it answers |
+|---------|-----------------|
+| [The problem](#the-problem) · [The approach](#the-approach) | Why an on-chain gate exists at all |
+| [Architecture](#architecture) | The four layers and how they talk to each other |
+| [Compliance layer](#compliance-layer) | The two integration paths and what they share |
+| [Function coverage](#function-coverage) | Exactly which calls are gated, and which are deliberately not |
+| [Core formulas](#core-formulas) | Market identity, oracle scaling, health, liquidation, fees |
+| [The credit ladder](#the-credit-ladder) | How a credential is priced into leverage |
+| [Deployment](#deployment) | Live addresses, integration status, repository layout |
+| [Getting started](#getting-started) | Build, test, run the frontend, run the off-chain services |
+| [Design choices](#design-choices) | Fifteen decisions, each with its trade-off stated |
+
 ---
 
 ## The problem
@@ -98,9 +116,9 @@ Covenant is four cooperating layers. Each layer talks to the one below through a
    ┌───────────────┴───────────────┐    ┌─────────────┴─────────────────────┐
    │ 4a. Compliance gates          │    │ 4b. Compliance-aware token layer  │
    │  src/compliance/              │    │  src/compliance/WrappedAToken.sol │
-   │    CleanversePoolGate         │    │  1:1 wrap of any origin ERC-20    │
+   │    CleanversePoolGate  ← live │    │  1:1 wrap of any origin ERC-20    │
    │    CovenantGate + Registry    │    │  transfers checked against pool   │
-   │    PermissiveGate (demo)      │    │  closes the flashLoan surface     │
+   │    PermissiveGate (tests only)│    │  closes the flashLoan surface     │
    └───────────────┬───────────────┘    └────────────────┬──────────────────┘
                    │ staticcall (150k gas cap)           │ staticcall (same shape)
                    └─────────────────┬───────────────────┘
@@ -356,6 +374,49 @@ initMarket(market) succeeds only if:
 
 Structurally impossible to hold a non-gated market on this deployment. See `Covenant.initMarket` and `test/compliance/ComplianceModeTest.t.sol`.
 
+## The credit ladder
+
+A single gate answers *yes or no*. A ladder of gates answers *on what terms*.
+
+An A-Pass carries a sub-tier, not just a validity bit. Because a gate's address is hashed into the market id (formula 1), a market that offers 91.5% LLTV is cryptographically bound to the gate that requires sub-tier 30 — the leverage and the credential requirement are **one object**. Nobody can offer institutional terms to a wallet that clears a retail bar, because doing so would be a different market with a different id.
+
+| Rung | Who clears it | Min sub-tier | LLTV | Collateral for a $100k borrow |
+|------|---------------|-------------|------|-------------------------------|
+| Institutional | Bank-verified entity holding a full-tier CVI credential | 30 | 91.5% | ≈ $109k |
+| Verified professional | Verified individual at an elevated CVI sub-tier | 20 | 77.0% | ≈ $130k |
+| Verified retail | Any wallet holding a valid A-Pass | 10 | 38.5% | ≈ $260k |
+
+That spread is the point. The institutional rung needs **2.4× less** collateral than the retail one for the same loan, and the credential is the only thing that closes the gap — which makes verification worth something beyond mere access.
+
+`CreditLadderLens` (`src/periphery/CreditLadderLens.sol`) resolves a wallet against every rung in a single `eth_call`, re-deriving each rung's gate, LLTV, and oracle from its market id via `ICovenant.toMarket`. The frontend's `/ladder` route renders that response directly.
+
+Deploy with `script/DeployLadder.s.sol` followed by `script/DeployLadderLens.s.sol`.
+
+## Deployment
+
+### Live addresses — Monad Testnet
+
+Chain id `10143` · RPC `https://testnet-rpc.monad.xyz` · explorer [testnet.monadexplorer.com](https://testnet.monadexplorer.com)
+
+The frontend reads every one of these from `frontend/src/config/chain.ts`, which is the single source of truth for the deployment. If this table and that file ever disagree, **the file is right** — swap the chain there and the whole app follows.
+
+| Contract | Address | Role |
+|----------|---------|------|
+| `Covenant` | `0xcdc06aae7617c3b6f44cc1f2a9a7163252d8a797` | The engine. Holds every market, position, and offer fill. |
+| `CleanversePoolGate` | `0xd49faa5d2d18b0ad04ef01093d2c2ef24ea8ad2c` | Covenant's gate. Holds the rule list, answers the engine's one boolean question. |
+| CVI Compliance Validator | `0xaC7e5179C2C7f03f209136886c172eb34F161792` | Cleanverse's validator (CCP V2). CREATE2-deployed to the same address on every chain they support. |
+| `BtcUsdOracle` | `0x2E09f0566A87Bb27615873aBCF18855d37b000F9` | Owner-push price feed. `STALENESS = 0`, so a pushed price does not expire. |
+| `EcrecoverNotary` | `0xc35B4e48940D68Dd449d19D3657e754632CC873C` | Validates the EIP-712 signature on an off-chain offer at fill time. |
+| `CreditLadderLens` | `0x4c18A570290FD0c7f4615ac24e5a42a72Ec2413D` | Resolves a wallet against all three ladder rungs in one call. |
+
+Test tokens (mintable, no value): **tUSDC** `0x7dbe32f1e1d3db45123f60ec5a79312863a7e279` (6 dec, loan token) · **tWBTC** `0x088b748e05b85af8ad2ee3c538a517f3eb1ce2ad` (8 dec, collateral).
+
+Ladder gates: institutional `0xC8035E7672e31a552f16FFeaB60d5f115Bd90451` · professional `0x51545c4f0A789BF7BA499CFD1Ac786D9E11d874d` · retail `0xB50A199cd20dfdaDFA5383eDB04b1B06474714d5`.
+
+**Current registration state.** All three ladder gates are deployed and whitelisted on the engine, but have not yet completed Cleanverse registration. Until they do, each gate's rule list is empty and it denies *every* account — including one holding a valid A-Pass. A wallet reading as ineligible on the ladder right now is a statement about the deployment, not a verdict on the credential. The primary `tWBTC / tUSDC` market (id `0xb6f6…8e7c`) is registered and fills normally.
+
+`PermissiveGate` (`src/compliance/PermissiveGate.sol`) returns `true` for every hook. It exists so the engine's non-compliance behaviour can be tested in isolation and so a market can be exercised end-to-end without a live pool. It is **not** part of the Monad deployment, and because gate addresses are part of the market id, a permissive market and a compliant market are different markets with no shared state.
+
 ### Cleanverse integration status
 
 Verified against the UAT gateway, `https://uatapi.cleanverse.com/api/cooperate`. The three endpoints marked ★ correspond one-to-one with the three `staticcall` reads `CleanversePoolGate._eligible` performs on-chain — the off-chain client and the on-chain gate ask the pool the same questions in the same order:
@@ -384,34 +445,31 @@ Integration details the client handles, each of which is easy to get wrong:
 
 Unavailable verification is never treated as clearance. The client's `attestable` property mirrors the gate's fail-closed rule so the off-chain and on-chain halves cannot disagree.
 
-### Current Sepolia state
-
-Cleanverse has not yet published a Sepolia compliance-pool address. To keep the end-to-end demo runnable in the meantime, this repository ships a `PermissiveGate` (`src/compliance/PermissiveGate.sol`) that returns `true` for every hook. It is deployed at [`0x026a6cfbb2922322fb7c4956263088ee5a934fff`](https://sepolia.etherscan.io/address/0x026a6cfbb2922322fb7c4956263088ee5a934fff) and bound to the demo market. It exists so a market can be created, offers signed, positions opened, and the wiring exercised without a live Cleanverse pool.
-
-Because gate addresses are part of the market id, the demo market and the eventual compliant market are *different* markets — no state leaks between them. Swapping in the real `CleanversePoolGate` is a matter of: (1) obtaining the Sepolia pool address from Cleanverse, (2) deploying `CleanversePoolGate(pool)`, (3) calling `covenant.setApprovedGate(gate, true)`, (4) creating a fresh market bound to the new gate. Step-by-step commands are in [todo.md](./todo.md#step-1--swap-permissivegate-for-cleanversepoolgate).
-
 ### Repository layout
 
 | Path | Contents |
 |------|----------|
-| `src/` | Core fixed-maturity credit engine and libraries |
-| `src/compliance/` | `CleanversePoolGate`, `CovenantGate`, `CovenantRegistry`, `WrappedAToken`, and their interfaces |
-| `src/interfaces/` | Engine and gate interfaces |
-| `src/periphery/` | Bundlers and helper libraries |
-| `src/ratifiers/` | Offer authorization modules |
-| `test/compliance/` | Gate and registry test suites |
-| `certora/` | Formal verification specifications |
-| `offchain/` | Cleanverse API client and cached OpenAPI spec |
+| `src/Covenant.sol` | The fixed-maturity credit engine — markets, positions, fills, settlement |
+| `src/compliance/` | `CleanversePoolGate`, `CovenantGate`, `CovenantRegistry`, `WrappedAToken`, `PermissiveGate` |
+| `src/interfaces/` | Engine, gate, notary, oracle, and callback interfaces |
+| `src/libraries/` | `IdLib` (market identity), `TickLib`, `ConstantsLib`, `EventsLib`, `SafeTransferLib`, `UtilsLib` |
+| `src/notaries/` | `EcrecoverNotary` — EIP-712 offer ratification |
+| `src/oracles/` | `BtcUsdOracle` (owner-push), `ChainlinkBtcUsdOracle` |
+| `src/periphery/` | `CovenantBundles`, `CreditLadderLens`, `EcrecoverAuthorizer`, and amount helpers |
+| `test/` | Foundry suites — `compliance/`, `oracles/`, `erc20s/`, `helpers/`, `frontend/` |
+| `script/` | Deployment scripts, one per contract, plus `CreateMarket` and `DeployLadder` |
+| `offchain/` | Cleanverse API client, EIP-712 offer signer, offer book builder, cached OpenAPI spec |
+| `frontend/` | React + wagmi SPA and the in-app documentation |
+| `docs/` | [`CoreMath.md`](./docs/CoreMath.md) — the full derivation behind the formulas above |
 
 ## Getting started
+
+### Contracts
 
 Build and test with [Foundry](https://book.getfoundry.sh/getting-started/installation):
 
 ```bash
 forge build
-```
-
-```bash
 forge test
 ```
 
@@ -421,7 +479,27 @@ Run only the compliance layer's tests:
 forge test --match-path "test/compliance/*" -vvv
 ```
 
-### Off-chain attester
+Deploy (scripts are one-per-contract, in dependency order):
+
+```bash
+forge script script/DeployCovenant.s.sol --rpc-url $RPC_URL --broadcast
+forge script script/DeployCleanverseGate.s.sol --rpc-url $RPC_URL --broadcast
+forge script script/CreateMarket.s.sol --rpc-url $RPC_URL --broadcast
+```
+
+### Frontend
+
+```bash
+cd frontend
+npm install
+npm run dev        # Vite dev server
+npm run build      # tsc -b && vite build
+npm run preview    # serve the production build locally
+```
+
+Point it at a different deployment by editing `frontend/src/config/chain.ts` — nothing else in the app hardcodes an address.
+
+### Off-chain services
 
 The Cleanverse API is authenticated per-application. Configure credentials via environment variables — never commit them:
 
@@ -429,7 +507,21 @@ The Cleanverse API is authenticated per-application. Configure credentials via e
 cp .env.example .env
 ```
 
-Populate `.env` with your Cleanverse application ID and API key. `.env` is gitignored.
+Populate `.env` with your Cleanverse application ID and API key. `.env` is gitignored; only `.env.example` is tracked.
+
+```bash
+cd offchain
+npm install                          # ethers, for the signing tools
+node sign_offer.js                   # produce a signed EIP-712 offer
+node build_offer_book.js             # assemble an offer book from signed offers
+node preflight_offers.js             # dry-run offers against the engine before publishing
+
+pip install -r requirements.txt      # Cleanverse client dependencies
+python server.py                     # local attester / verification endpoint
+python -m pytest test_endpoints.py   # exercise the Cooperate API integration
+```
+
+The signing flow is documented in [`offchain/SIGNING.md`](./offchain/SIGNING.md).
 
 ## Design choices
 
@@ -517,7 +609,7 @@ Every load-bearing decision in Covenant, with the trade-off it makes. Each item 
 
 - **Choice.** Each `CleanversePoolGate` is registered with the validator individually via `POST /api/cooperate/validator/register` (CCP V2 §5), not through a factory holding `REGISTER_ROLE`.
 - **Why.** A gate binds to one compliance profile. If you want two profiles, deploy two gates and two markets. Factory mode is the right shape for a DEX with hundreds of pools; single-contract mode is the right shape for a lending protocol whose markets are deliberately few.
-- **Trade-off.** One-time API call per gate deployment. Documented in `todo.md` §Part 1 step 4.
+- **Trade-off.** One-time API call per gate deployment, and a gate denies every account until that call lands. The three credit-ladder gates are in exactly that state today — see [Deployment](#deployment).
 
 ### 15. Deterministic market storage via `SSTORE2`
 
@@ -531,9 +623,8 @@ Covenant is infrastructure, not a licensed financial institution. It does not cu
 
 ## Documentation
 
-- [Core pool math and invariants](./docs/CoreMath.md)
-- [Codebase walkthrough (plain language)](./Explanation.md)
-- [Off-chain signing flow](./offchain/SIGNING.md)
-- [Production-readiness plan and chain recommendation](./todo.md)
+- [Core pool math and invariants](./docs/CoreMath.md) — the full derivation behind the formulas above, including what the contracts deliberately do *not* enforce
+- [Off-chain signing flow](./offchain/SIGNING.md) — producing and validating an EIP-712 offer
 - [Business plan](./business_plan.pdf)
+- The running interface at [`frontend/`](#frontend) carries its own documentation section (`/docs`) covering the same ground with live addresses read from the deployment
 - [Cleanverse API documentation](https://docs.cleanverse.com/) · [CCP V2 integration guide (PDF)](https://cleanverse.com/)

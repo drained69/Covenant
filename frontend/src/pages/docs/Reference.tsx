@@ -1,5 +1,6 @@
 import { Link } from "react-router-dom";
 import { DocPage, Section, Prose, Note } from "./_primitives";
+import { REPO_URL as REPO } from "./docsNav";
 import { IconArrowRight, IconExternal } from "../../components/icons";
 import { ADDRESSES, TOKENS, LADDER, LADDER_DEPLOYED, CHAIN, EXPLORER } from "../../config/chain";
 
@@ -18,9 +19,7 @@ import { ADDRESSES, TOKENS, LADDER, LADDER_DEPLOYED, CHAIN, EXPLORER } from "../
   this page follows.
 */
 
-/* The repository is public; the doc links below point at it rather than at
-   paths a reader cannot open from a browser. */
-const REPO = "https://github.com/drained69/covenant";
+/* The repository URL is shared with the docs index; see `docsNav.ts`. */
 
 export function Reference() {
   return (
@@ -327,9 +326,10 @@ const REPO_LINKS = [
       "The full derivation the Core math page condenses, including the sections on what the contracts deliberately do not enforce.",
   },
   {
-    href: `${REPO}/blob/main/Flow.md`,
-    label: "Flow.md",
-    blurb: "The offer lifecycle end to end, from signing through fill to settlement.",
+    href: `${REPO}/blob/main/offchain/SIGNING.md`,
+    label: "offchain/SIGNING.md",
+    blurb:
+      "Producing and validating an EIP-712 offer — the signing flow that precedes every fill.",
   },
   {
     href: `${REPO}/blob/main/README.md`,
