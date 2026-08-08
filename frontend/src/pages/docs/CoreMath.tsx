@@ -1,6 +1,4 @@
-import { Link } from "react-router-dom";
-import { DocPage, Section, Prose, Note } from "./_primitives";
-import { IconArrowRight } from "../../components/icons";
+import { DocPage, Section, Prose } from "./_primitives";
 
 /*
   Core math.

@@ -1,7 +1,16 @@
+# .gitignore only governs files git is NOT already tracking. If something keeps
+# appearing on GitHub after being listed here, it was committed before the rule
+# existed — untrack it explicitly:
+#
+#   git rm -r --cached <path> && git commit -m "untrack <path>"
+#
+# (This is what happened to .claude/launch.json.)
+
 # Foundry
 cache/
 out/
 broadcast/
+lcov.info
 
 # Secrets - never commit
 .env
@@ -9,6 +18,9 @@ broadcast/
 .env.sepolia.bak
 .env.*
 !.env.example
+*.pem
+*.key
+keystore/
 
 # Python
 __pycache__/
@@ -26,6 +38,9 @@ build/
 .next/
 coverage/
 *.tsbuildinfo
+.vite/
+npm-debug.log*
+yarn-error.log*
 
 # IDE / OS
 .vscode/
@@ -33,9 +48,12 @@ coverage/
 .DS_Store
 Thumbs.db
 .claude/
+.cursor/
+*.swp
 
 # Agent tooling
 .agents/
+.plamen/
 skills-lock.json
 
 # Temporary / Scratchpad folders
