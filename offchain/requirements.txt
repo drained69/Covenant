@@ -1,0 +1,3 @@
+# cleanverse_client.py imports cryptography.hazmat for A-Pass payload decryption.
+# Everything else it uses (urllib, base64, json, subprocess) is stdlib.
+cryptography==48.0.0

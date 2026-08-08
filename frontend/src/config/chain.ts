@@ -73,6 +73,73 @@ export const MARKETS = [
   },
 ];
 
+/**
+ * The tiered credit ladder.
+ *
+ * A rung is a market whose gate requires a given CVI sub-tier and whose LLTV matches it.
+ * The gate address is hashed into the market id (IdLib), so a 91.5% market is
+ * cryptographically bound to its sub-tier-30 gate — the terms and the policy are one object.
+ *
+ * Live on Monad testnet as of the `DeployLadder.s.sol` + `DeployLadderLens.s.sol` broadcasts.
+ * Each `marketId` is the content-addressed id printed by DeployLadder — it is the ONLY ladder
+ * config that matters, because the lens re-derives each rung's gate, LLTV, and oracle from it
+ * via `ICovenant.toMarket`. The `gate` and `lltv` fields below are display metadata that the
+ * lens response confirms; if they ever disagree, the lens is right.
+ *
+ * `minSubTier` here is the bar the rung is *intended* to carry. It is display metadata only.
+ * The authoritative value is read from the gate's rule list through the lens — and until each
+ * gate completes its Cleanverse registration, that list is empty and the gate denies everyone.
+ * All three gates are deployed and whitelisted but NOT yet registered, so `accessible` reads
+ * false for every wallet and the panel should present that as "awaiting registration", not
+ * "you do not qualify".
+ */
+export const LADDER = {
+  /** CreditLadderLens deployment. Null until deployed. */
+  lens: "0x4c18A570290FD0c7f4615ac24e5a42a72Ec2413D" as `0x${string}` | null,
+  rungs: [
+    {
+      key: "institutional",
+      label: "Institutional",
+      minSubTier: 30,
+      /** WAD-scaled LLTV, matching LLTV_4 in ConstantsLib. */
+      lltv: 915000000000000000n,
+      marketId: "0xf28a2f531ff4358d964da2597f2d582fb890416d158caabd4fdb372f822fd0a0" as
+        | `0x${string}`
+        | null,
+      gate: "0xC8035E7672e31a552f16FFeaB60d5f115Bd90451" as `0x${string}` | null,
+      qualifies: "Bank-verified entity holding a full-tier CVI credential.",
+    },
+    {
+      key: "professional",
+      label: "Verified professional",
+      minSubTier: 20,
+      /** LLTV_2. */
+      lltv: 770000000000000000n,
+      marketId: "0x8cc388da52a8a4ec54980250ff4ed940ed8fc677dc7f3aa94f4448a2acc1778c" as
+        | `0x${string}`
+        | null,
+      gate: "0x51545c4f0A789BF7BA499CFD1Ac786D9E11d874d" as `0x${string}` | null,
+      qualifies: "Verified individual at an elevated CVI sub-tier.",
+    },
+    {
+      key: "retail",
+      label: "Verified retail",
+      minSubTier: 10,
+      /** LLTV_0. */
+      lltv: 385000000000000000n,
+      marketId: "0x7abfc9587d08633fad01c76004629595b2be824b0d0a2a62882cb84e7cd2e588" as
+        | `0x${string}`
+        | null,
+      gate: "0xB50A199cd20dfdaDFA5383eDB04b1B06474714d5" as `0x${string}` | null,
+      qualifies: "Any wallet holding a valid A-Pass.",
+    },
+  ],
+} as const;
+
+/** True once the lens and every rung market id are present. */
+export const LADDER_DEPLOYED =
+  LADDER.lens !== null && LADDER.rungs.every((r) => r.marketId !== null);
+
 export const EXPLORER = CHAIN.blockExplorers?.default.url ?? "https://testnet.monadexplorer.com";
 
 /** Optional: paid WalletConnect project id enables mobile deep-links via QR. */

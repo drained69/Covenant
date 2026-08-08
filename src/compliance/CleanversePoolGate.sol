@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
-// Copyright (c) 2026 drained99
+// Copyright (c) 2026 Covenant Team
 pragma solidity 0.8.34;
 
 import {IEnterGate, ILiquidatorGate} from "../interfaces/IGate.sol";
@@ -24,10 +24,27 @@ import {IAPassComplianceValidator, RuleV2} from "./interfaces/IAPassComplianceVa
 /// CCP V2 folds pause semantics inside `complianceVerify` returning `false`, so there is no
 /// separate `paused()` call in this gate (unlike the earlier V1 shape).
 ///
-/// **Rule management** — the owner may call `setRule / addRule / removeRule` to forward RuleV2
-/// updates to the validator's `setRuleV2FromContract` family. Because the validator identifies the
-/// pool by `msg.sender`, and this contract is the pool, `msg.sender = address(this)` from the
-/// validator's point of view — exactly what CCP V2 §5.2 "business contract itself" expects.
+/// **Rule management** — `setRule / addRule / removeRule` forward RuleV2 updates to the validator's
+/// `setRuleV2FromContract` family. Because the validator identifies the pool by `msg.sender`, and
+/// this contract is the pool, `msg.sender = address(this)` from the validator's point of view —
+/// exactly what CCP V2 §5.2 "business contract itself" expects.
+///
+/// **These three wrappers are inert against the CCP V2 deployment on Monad testnet.** The proxy at
+/// `0xaC7e5179…` resolves (EIP-1967 impl slot) to `0x68Ce853D…`, whose bytecode carries only the
+/// compliance *read* surface: `isRegistered`, `complianceVerify`, `getRulesV2`. The write selectors
+/// `setRuleV2FromContract` (`0x46bfbe21`), `addRuleV2FromContract` (`0xd8e4e34c`), and
+/// `removeRuleV2FromContract` are ABSENT, so each call lands on a reverting fallback and the wrapper
+/// reverts with empty return data. Confirmed two ways: a selector scan of the implementation
+/// bytecode, and simulating `setRule` from the confirmed owner of the already-registered production
+/// gate `0xd49faa5d…` — it reverts there too, which rules out "unregistered pool" as the cause.
+///
+/// Rules are therefore administered off-chain over the Cleanverse API, which submits the
+/// rule-setting transaction itself: `POST /validator/register` carries the pool's initial rule, and
+/// `POST /validator/set_rule` replaces it later (no owner signature required, but the pool must
+/// already be registered). Until a gate is registered its rule list is empty and it denies every
+/// wallet — the fail-closed default. Keep these wrappers: they cost nothing, they are the correct
+/// interface, and they start working the moment an implementation carrying those selectors is
+/// deployed behind the proxy. `getRules()` is unaffected and works against the live validator.
 ///
 /// **What ownership does and does not touch.** `owner` controls rule updates only. It cannot move
 /// funds (the gate holds none), cannot alter which markets this gate is bound to (gate address is
@@ -83,22 +100,34 @@ contract CleanversePoolGate is IEnterGate, ILiquidatorGate {
         owner = newOwner;
     }
 
-    /* RULE MANAGEMENT (owner-only, forwards to validator) */
+    /* RULE MANAGEMENT (owner-only, forwards to validator)
+     *
+     * The three mutators below revert against the CCP V2 implementation currently deployed on Monad
+     * testnet, which does not carry their target selectors — see the contract docstring. Administer
+     * rules over the Cleanverse API instead (`POST /validator/register`, `POST /validator/set_rule`).
+     * `getRules()` is a read and works normally.
+     */
 
     /// @notice Replaces every RuleV2 for this gate with a single new rule (validator's
     /// `setRuleV2FromContract`).
+    /// @dev Reverts on the current Monad testnet validator: `setRuleV2FromContract` is not in the
+    /// deployed implementation. Use `POST /validator/set_rule`.
     function setRule(RuleV2 calldata rule) external onlyOwner {
         validator.setRuleV2FromContract(rule);
         emit RuleSet(rule);
     }
 
     /// @notice Appends a RuleV2 (OR semantics on the validator's rule list).
+    /// @dev Reverts on the current Monad testnet validator: `addRuleV2FromContract` is not in the
+    /// deployed implementation. Use `POST /validator/add_rule`.
     function addRule(RuleV2 calldata rule) external onlyOwner {
         validator.addRuleV2FromContract(rule);
         emit RuleAdded(rule);
     }
 
     /// @notice Removes the rule at `index` from the validator's rule list for this gate.
+    /// @dev Reverts on the current Monad testnet validator: `removeRuleV2FromContract` is not in the
+    /// deployed implementation. Use `POST /validator/remove_rule`.
     function removeRule(uint256 index) external onlyOwner {
         validator.removeRuleV2FromContract(index);
         emit RuleRemoved(index);

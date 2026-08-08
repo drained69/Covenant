@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: BUSL-1.1
-// Copyright (c) 2026 drained99
+// Copyright (c) 2026 Covenant Team
 pragma solidity 0.8.34;
 
 import {UtilsLib} from "./libraries/UtilsLib.sol";
@@ -14,7 +14,31 @@ import {INotary} from "./interfaces/INotary.sol";
 import {IEnterGate, ILiquidatorGate} from "./interfaces/IGate.sol";
 import {ICovenant, Market, Offer, CollateralParams, MarketState, Position} from "./interfaces/ICovenant.sol";
 
-
+/// @title Covenant
+/// @author Covenant Team
+/// @notice A singleton, immutable, fixed-maturity lending protocol. Every market is a zero-coupon credit
+/// market: lenders buy credit units that redeem 1:1 for loan tokens at maturity, and borrowers sell those
+/// units at a discount, paying the difference as interest. There is no interest-rate model — the price is
+/// set by whoever fills the offer, at a tick.
+/// @dev Terms are agreed off-chain as an `Offer` and settled on-chain by `fillOffer`. Covenant does not
+/// interpret offer authorization itself: each offer names an `INotary` that the maker has authorized, and
+/// that notary decides what a valid signature, Merkle proof, or wallet approval looks like. A market's
+/// identity is the hash of its full `Market` struct, so its loan token, maturity, tick spacing, oracles,
+/// LLTVs, and gates can never be mutated — changing any of them yields a different market.
+///
+/// Positions carry both sides in one struct: `credit` (a lender's claim), `debt` (a borrower's liability),
+/// and per-collateral balances tracked through a bitmap so iteration stays bounded. Solvency is checked
+/// against `IOracle` prices at `ORACLE_PRICE_SCALE`, and an unhealthy borrower can be liquidated by `seize`
+/// for a bonus set by the market's liquidation incentive factor. Shortfalls that collateral cannot cover
+/// are socialized to that market's lenders through `lossFactor`, which is applied lazily on next touch.
+///
+/// Two fees exist and are independent: a settlement fee taken from the seller's proceeds at fill time,
+/// scaled by remaining time to maturity across seven breakpoints, and a continuous fee that accrues per
+/// second on outstanding credit. Both are claimed separately and neither is charged on flash loans.
+///
+/// External hooks — the callbacks in `ICallbacks`, the notary, and the gates — are the only places control
+/// leaves this contract. Callbacks must return `CALLBACK_SUCCESS` or the whole call reverts, so a contract
+/// cannot become a callback by accident; gates are called with a bounded gas stipend and fail closed.
 contract Covenant is ICovenant {
     using UtilsLib for uint256;
     using UtilsLib for uint128;
@@ -23,6 +47,12 @@ contract Covenant is ICovenant {
 
     /// @notice Chain id captured at deployment; used for stable market id computation.
     uint256 public immutable INITIAL_CHAIN_ID;
+
+    /// @notice Whether every new market MUST bind a whitelisted, non-zero compliance gate.
+    /// @dev Immutable at construction. `false` reproduces the underlying permissionless behavior (kept
+    /// for parity with existing tests and for jurisdictions that don't require compliance). `true` enforces
+    /// that Covenant is compliance-native: no non-gated market can ever exist on this deployment.
+    bool public immutable REQUIRE_COMPLIANCE;
 
     /// STORAGE ///
 
@@ -38,32 +68,19 @@ contract Covenant is ICovenant {
     address public feeClaimer;
     address public tickSpacingSetter;
 
-    /// CONSTRUCTOR ///
-
-    /// @notice Initializes the protocol and sets the deployer as role setter.
-    /// @notice Whether every new market MUST bind a whitelisted, non-zero compliance gate.
-    /// @dev Immutable at construction. `false` reproduces the underlying permissionless behavior (kept
-    /// for parity with existing tests and for jurisdictions that don't require compliance). `true` enforces
-    /// that Covenant is compliance-native: no non-gated market can ever exist on this deployment.
-    bool public immutable REQUIRE_COMPLIANCE;
-
     /// @notice The account permitted to add/remove approved gate implementations. Meaningful only when
     /// `REQUIRE_COMPLIANCE` is true.
     address public gateAdmin;
 
     /// @notice Whether a given gate contract is approved for use in new markets.
-    /// @dev Enforced in `initMarket` when `REQUIRE_COMPLIANCE` is true. Deliberately owner-controlled:
+    /// @dev Enforced in `initMarket` when `REQUIRE_COMPLIANCE` is true. Deliberately admin-controlled:
     /// arbitrary compliance contracts must not be swappable in by anyone, or a bogus gate could quietly
     /// let non-compliant participants trade.
-    mapping(address => bool) public isApprovedGate;
+    mapping(address gate => bool approved) public isApprovedGate;
 
-    event GateAdminSet(address indexed previousAdmin, address indexed newAdmin);
-    event GateApprovalSet(address indexed gate, bool approved);
+    /// CONSTRUCTOR ///
 
-    error OnlyGateAdmin();
-    error MissingComplianceGate();
-    error GateNotApproved(address gate);
-
+    /// @notice Initializes the protocol and sets the deployer as role setter.
     /// @dev Captures `INITIAL_CHAIN_ID` for stable market id computation across hard forks.
     /// @param requireCompliance Toggle for the gate-whitelist enforcement in `initMarket`.
     /// @param _gateAdmin Address that manages the approved-gate list. Only read when
@@ -75,16 +92,19 @@ contract Covenant is ICovenant {
         if (requireCompliance) {
             require(_gateAdmin != address(0), OnlyGateAdmin());
             gateAdmin = _gateAdmin;
-            emit GateAdminSet(address(0), _gateAdmin);
+            emit EventsLib.GateAdminSet(address(0), _gateAdmin);
         }
         emit EventsLib.Constructor(msg.sender, INITIAL_CHAIN_ID);
     }
 
+    /// COMPLIANCE GATE ADMIN ///
+
     /// @notice Transfers the gate-admin role.
+    /// @param newGateAdmin The account that will manage the approved-gate list. Must be non-zero.
     function transferGateAdmin(address newGateAdmin) external {
         require(msg.sender == gateAdmin, OnlyGateAdmin());
         require(newGateAdmin != address(0), OnlyGateAdmin());
-        emit GateAdminSet(gateAdmin, newGateAdmin);
+        emit EventsLib.GateAdminSet(gateAdmin, newGateAdmin);
         gateAdmin = newGateAdmin;
     }
 
@@ -92,10 +112,12 @@ contract Covenant is ICovenant {
     /// @dev Revoking `approved = false` on a live gate does NOT retroactively invalidate existing markets
     /// bound to it — those keep transacting under the gate they were created with. The revocation only
     /// prevents NEW markets from binding it.
+    /// @param gate The gate contract whose approval status is being set.
+    /// @param approved True to allow new markets to bind `gate`, false to prevent it.
     function setApprovedGate(address gate, bool approved) external {
         require(msg.sender == gateAdmin, OnlyGateAdmin());
         isApprovedGate[gate] = approved;
-        emit GateApprovalSet(gate, approved);
+        emit EventsLib.GateApprovalSet(gate, approved);
     }
 
     /// MULTICALL ///
@@ -348,7 +370,7 @@ contract Covenant is ICovenant {
         // Reserve continuous fee on newly opened credit through maturity (locked in pendingFee).
         uint128 buyerPendingFeeIncrease =
             UtilsLib.toUint128(buyerCreditIncrease.mulDivDown(_marketState.continuousFee * timeToMaturity, WAD));
-        // Release the seller's pending fee proportionally to credit burned this fill. //@audit
+        // Release the seller's pending fee proportionally to credit burned this fill.
         uint128 sellerPendingFeeDecrease = sellerPos.credit > 0
             ? UtilsLib.toUint128(sellerPos.pendingFee.mulDivUp(sellerCreditDecrease, sellerPos.credit))
             : 0;
@@ -610,7 +632,7 @@ contract Covenant is ICovenant {
             maxDebt += _collateral.mulDivDown(price, ORACLE_PRICE_SCALE).mulDivDown(_collateralParam.lltv, WAD);
             badDebt = badDebt.zeroFloorSub(
                 _collateral.mulDivUp(price, ORACLE_PRICE_SCALE).mulDivUp(WAD, _collateralParam.maxLif)
-            ); // @audit debtors
+            );
             _collateralBitmap = _collateralBitmap.clearBit(i);
         }
 
@@ -643,8 +665,6 @@ contract Covenant is ICovenant {
                 ? UtilsLib.min(_maxLif, WAD + (_maxLif - WAD) * (block.timestamp - market.maturity) / TIME_TO_MAX_LIF)
                 : _maxLif;
 
-
-            // @audit seizedAssets the amount of colleteral been seized while repaidUnits is the amount of debt been repaid
             if (seizedAssets > 0) {
                 repaidUnits = seizedAssets.mulDivUp(liquidatedCollatPrice, ORACLE_PRICE_SCALE).mulDivUp(WAD, lif);
             } else {
@@ -672,7 +692,7 @@ contract Covenant is ICovenant {
                 _position.collateralBitmap = _position.collateralBitmap.clearBit(collateralIndex);
             }
             _marketState.withdrawable += UtilsLib.toUint128(repaidUnits);
-            _position.debt -= UtilsLib.toUint128(repaidUnits); // @audit debt is updated on every liquidation
+            _position.debt -= UtilsLib.toUint128(repaidUnits);
         }
 
         address payer = callback != address(0) ? callback : msg.sender;
@@ -876,7 +896,7 @@ contract Covenant is ICovenant {
         uint128 pendingFeeDecrease = _position.pendingFee - newPendingFee;
 
         _position.credit = newCredit;
-        _position.lastLossFactor = marketState[id].lossFactor; // @audit 
+        _position.lastLossFactor = marketState[id].lossFactor;
         _position.pendingFee = newPendingFee;
         _position.lastAccrual = uint128(block.timestamp);
         marketState[id].continuousFeeCredit += UtilsLib.toUint128(accruedFee);

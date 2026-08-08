@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
-// Copyright (c) 2026 drained99
+// Copyright (c) 2026 Covenant Team
 pragma solidity 0.8.34;
 
 import {Test} from "../../lib/forge-std/src/Test.sol";
@@ -59,7 +59,7 @@ contract ComplianceModeTest is Test {
     }
 
     function test_constructor_rejectsZeroAdminInComplianceMode() public {
-        vm.expectRevert(Covenant.OnlyGateAdmin.selector);
+        vm.expectRevert(ICovenant.OnlyGateAdmin.selector);
         new Covenant(true, address(0));
     }
 
@@ -71,7 +71,7 @@ contract ComplianceModeTest is Test {
 
     function test_setApprovedGate_onlyAdmin() public {
         vm.prank(outsider);
-        vm.expectRevert(Covenant.OnlyGateAdmin.selector);
+        vm.expectRevert(ICovenant.OnlyGateAdmin.selector);
         covenant.setApprovedGate(address(approvedGate), true);
     }
 
@@ -81,7 +81,7 @@ contract ComplianceModeTest is Test {
         assertEq(covenant.gateAdmin(), outsider);
 
         vm.prank(admin);
-        vm.expectRevert(Covenant.OnlyGateAdmin.selector);
+        vm.expectRevert(ICovenant.OnlyGateAdmin.selector);
         covenant.setApprovedGate(address(unapprovedGate), true);
     }
 
@@ -89,20 +89,20 @@ contract ComplianceModeTest is Test {
 
     function test_initMarket_revertsIfEntryGateZero() public {
         Market memory m = _market(address(0), address(approvedGate));
-        vm.expectRevert(Covenant.MissingComplianceGate.selector);
+        vm.expectRevert(ICovenant.MissingComplianceGate.selector);
         covenant.initMarket(m);
     }
 
     function test_initMarket_revertsIfSeizureGateZero() public {
         Market memory m = _market(address(approvedGate), address(0));
-        vm.expectRevert(Covenant.MissingComplianceGate.selector);
+        vm.expectRevert(ICovenant.MissingComplianceGate.selector);
         covenant.initMarket(m);
     }
 
     function test_initMarket_revertsIfEntryGateNotWhitelisted() public {
         Market memory m = _market(address(unapprovedGate), address(approvedGate));
         vm.expectRevert(
-            abi.encodeWithSelector(Covenant.GateNotApproved.selector, address(unapprovedGate))
+            abi.encodeWithSelector(ICovenant.GateNotApproved.selector, address(unapprovedGate))
         );
         covenant.initMarket(m);
     }
@@ -110,7 +110,7 @@ contract ComplianceModeTest is Test {
     function test_initMarket_revertsIfSeizureGateNotWhitelisted() public {
         Market memory m = _market(address(approvedGate), address(unapprovedGate));
         vm.expectRevert(
-            abi.encodeWithSelector(Covenant.GateNotApproved.selector, address(unapprovedGate))
+            abi.encodeWithSelector(ICovenant.GateNotApproved.selector, address(unapprovedGate))
         );
         covenant.initMarket(m);
     }
@@ -137,7 +137,7 @@ contract ComplianceModeTest is Test {
         Market memory m2 = _market(address(approvedGate), address(approvedGate));
         m2.maturity = m.maturity + 1; // different market id
         vm.expectRevert(
-            abi.encodeWithSelector(Covenant.GateNotApproved.selector, address(approvedGate))
+            abi.encodeWithSelector(ICovenant.GateNotApproved.selector, address(approvedGate))
         );
         covenant.initMarket(m2);
     }

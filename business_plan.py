@@ -283,6 +283,17 @@ def build_story(styles):
         "presence, and the reason isn't technical. The infrastructure exists. "
         "What's missing is a compliance layer institutions can legally use. "
         "Covenant is that layer."))
+    s.append(p(styles,
+        "Our differentiator is the <b>Tiered Credit Ladder</b>: verified identity "
+        "does not merely grant access to a market — it prices the loan. A "
+        "bank-verified counterparty and an anonymous-but-credentialed wallet "
+        "borrow the same asset, in the same block, on the same engine, and post "
+        "materially different collateral, because the credential each carries "
+        "sets the loan-to-value they receive. Compliance stops being a cost "
+        "centre and becomes the thing institutions are paid for. That is the "
+        "commercial argument for choosing a regulated venue over a permissionless "
+        "one, and it is enforced in settlement rather than asserted in a policy "
+        "document."))
     s.append(divider())
 
     s.append(h3(styles, "Snapshot"))
@@ -400,6 +411,37 @@ def build_story(styles):
         "canLiquidate). Every position change is intercepted and cleared against "
         "Cleanverse's on-chain identity and policy engine before it executes."))
 
+    s.append(h3(styles, "The Tiered Credit Ladder"))
+    s.append(p(styles,
+        "Covenant's differentiator: <b>verified identity prices the loan</b>. "
+        "The credit ladder deploys multiple markets for the same asset pair, "
+        "each with its own compliance gate and loan-to-value ratio. A verified "
+        "institution posts 109k collateral to borrow 100k (91.5% LLTV) at the "
+        "top rung. A verified retail wallet posts 260k for the same loan (38.5% "
+        "LLTV) at the bottom rung. The credential tier each wallet carries "
+        "determines which rung they access — and capital efficiency becomes "
+        "the economic reward for verified identity, not just a regulatory cost. "
+        "The gate address that checks the credential is cryptographically bound "
+        "to the market id that sets the LLTV, so the policy and the price are "
+        "the same immutable object."))
+    s.append(Spacer(1, 4))
+    s.append(data_table([
+        ["Rung", "Credential bar", "LLTV", "Collateral for $100k", "Who qualifies"],
+        ["3 — Institutional",  "Sub-tier 30", "91.5%", "$109k", "Bank-verified entity"],
+        ["2 — Professional",   "Sub-tier 20", "77.0%", "$130k", "Verified individual"],
+        ["1 — Retail",         "Sub-tier 10", "38.5%", "$260k", "Any valid credential"],
+        ["0 — No credential",  "—",           "—",     "Cannot open", "Denied at the gate"],
+    ], col_widths=[1.35 * inch, 1.1 * inch, 0.65 * inch, 1.2 * inch, 1.9 * inch]))
+    s.append(Spacer(1, 4))
+    s.append(p(styles,
+        "Critically, the ladder required <b>no changes to the credit engine</b>. "
+        "It is expressed entirely through invariants the protocol already had: "
+        "per-collateral LLTV, gate addresses inside the market identity hash, "
+        "and increase-only gating. Adding a rung — a fund-only tranche, a "
+        "jurisdiction-scoped tranche — is a deployment, not an upgrade. That is "
+        "what makes the model extensible without reintroducing protocol risk.",
+        style="muted"))
+
     s.append(h3(styles, "The market factory"))
     s.append(p(styles,
         "A periphery contract lets a Cleanverse-onboarded institution deploy "
@@ -415,6 +457,15 @@ def build_story(styles):
         "in-flight positions to settle at maturity — you cannot strand an "
         "institution's capital because of an expired credential, but you also "
         "cannot let a revoked party open new exposure."))
+    s.append(p(styles,
+        "This asymmetry is what makes the ladder safe to deploy against real "
+        "money. A counterparty whose credential is downgraded or frozen loses "
+        "access to new borrowing at the rung they previously cleared, but their "
+        "open position remains repayable and their collateral remains "
+        "withdrawable. Compliance revocation halts new risk without stranding "
+        "committed capital — the property an institutional credit committee "
+        "asks about first, and the reason a compliance event here does not "
+        "trigger a forced liquidation."))
 
     s.append(h3(styles, "The regulator report"))
     s.append(p(styles,
@@ -427,11 +478,11 @@ def build_story(styles):
     s.append(h3(styles, "Roadmap"))
     s.append(data_table([
         ["Phase",             "Timeline",  "Deliverable"],
-        ["Hackathon MVP",     "Now",       "CovenantGate + factory + tests + regulator demo"],
-        ["Design Partner",    "Q4 2026",   "Testnet pilot with one RWA issuer or licensed lender"],
-        ["Multi-Jurisdiction","Q1 2027",   "Per-market policy profiles; 3+ jurisdictions supported"],
-        ["Mainnet Launch",    "Q2 2027",   "Production deployment; reference integration published"],
-        ["Scale",             "Q3 2027+",  "SDK for other protocols; multiple gated market types"],
+        ["Hackathon MVP",     "Now",       "CovenantGate + Tiered Credit Ladder (3 rungs, lens router, deployment script) + tests + demo"],
+        ["Design Partner",    "Q4 2026",   "Testnet pilot with one RWA issuer or licensed lender; ladder tuned to partner's credential tiers"],
+        ["Multi-Jurisdiction","Q1 2027",   "Per-market policy profiles; 3+ jurisdictions supported; jurisdiction-scoped ladder rungs"],
+        ["Mainnet Launch",    "Q2 2027",   "Production deployment; reference integration published; audited ladder"],
+        ["Scale",             "Q3 2027+",  "SDK for other protocols; multiple gated market types; fund-only and sector-scoped rungs"],
     ], col_widths=[1.6 * inch, 1.4 * inch, 3.3 * inch]))
 
     s.append(PageBreak())

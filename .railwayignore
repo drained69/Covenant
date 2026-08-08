@@ -1,0 +1,23 @@
+# Guard rail: `railway up` uploads from the repo root (the linked project path),
+# so the Foundry artifacts and the .env holding PRIVATE_KEY would otherwise be
+# swept in. Each service then builds from its own Root Directory setting
+# (covenant-web -> /frontend, covenant-api -> offchain/).
+#
+# The directory entries below are anchored with a leading slash on purpose.
+# These follow gitignore semantics, where an unanchored `lib/` matches a
+# directory of that name at ANY depth -- which silently stripped
+# frontend/src/lib/ out of the upload and broke the web build with
+# "Cannot find module '../lib/format'". Anchored, they match only the repo root.
+/out/
+/cache/
+/broadcast/
+/.scratchpad/
+/lib/
+/test/
+/video/
+
+# Deliberately left unanchored: these should never ship from anywhere in the tree.
+.env
+.env.*
+node_modules/
+*.pdf

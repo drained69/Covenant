@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
-// Copyright (c) 2026 drained99
+// Copyright (c) 2026 Covenant Team
 pragma solidity 0.8.34;
 
 import {IEcrecoverNotary, Signature, EIP712_DOMAIN_TYPEHASH} from "./interfaces/IEcrecoverNotary.sol";

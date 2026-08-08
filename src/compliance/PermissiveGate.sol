@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
-// Copyright (c) 2026 drained99
+// Copyright (c) 2026 Covenant Team
 pragma solidity 0.8.34;
 
 import {IEnterGate, ILiquidatorGate} from "../interfaces/IGate.sol";

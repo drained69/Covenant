@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
-// Copyright (c) 2026 drained99
+// Copyright (c) 2026 Covenant Team
 pragma solidity >=0.5.0;
 
 struct Market {
@@ -108,6 +108,7 @@ interface ICovenant {
     error ConsumedUnits();
     error ContinuousFeeTooHigh();
     error FeeNotMultipleOfFeeCbp();
+    error GateNotApproved(address gate);
     error InconsistentInput();
     error WrongBuyCallbackReturnValue();
     error WrongSellCallbackReturnValue();
@@ -127,10 +128,12 @@ interface ICovenant {
     error NotLiquidatable();
     error MarketLossFactorMaxedOut();
     error MarketNotCreated();
+    error MissingComplianceGate();
     error OfferExpired();
     error OfferNotStarted();
     error OnlyFeeClaimer();
     error OnlyFeeSetter();
+    error OnlyGateAdmin();
     error OnlyRoleSetter();
     error OnlyTickSpacingSetter();
     error NotaryFail();
@@ -150,6 +153,7 @@ interface ICovenant {
     // forgefmt: disable-start
     /// IMMUTABLES ///
     function INITIAL_CHAIN_ID() external view returns (uint256);
+    function REQUIRE_COMPLIANCE() external view returns (bool);
 
     /// STORAGE GETTERS ///
     function position(bytes32 id, address user) external view returns (uint128 credit, uint128 pendingFee, uint128 lastLossFactor, uint128 lastAccrual, uint128 debt, uint128 collateralBitmap);
@@ -163,11 +167,15 @@ interface ICovenant {
     function feeSetter() external view returns (address);
     function feeClaimer() external view returns (address);
     function tickSpacingSetter() external view returns (address);
+    function gateAdmin() external view returns (address);
+    function isApprovedGate(address gate) external view returns (bool);
 
     /// MULTICALL ///
     function multicall(bytes[] memory calls) external;
 
     /// ADMIN FUNCTIONS ///
+    function transferGateAdmin(address newGateAdmin) external;
+    function setApprovedGate(address gate, bool approved) external;
     function setRoleSetter(address newRoleSetter) external;
     function setFeeSetter(address newFeeSetter) external;
     function setFeeClaimer(address newFeeClaimer) external;

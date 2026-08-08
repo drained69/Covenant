@@ -5,8 +5,10 @@ import { IconCheck, IconArrowRight, IconDocument } from "./icons";
 
 /**
  * Order book for the current market. Clicking an offer sets `?offer=<id>&tab=take` on the URL,
- * which the ActionPanel reads to prefill the Take offer flow. Offers are fetched live from the
- * API server (with real EIP-712 signatures), falling back to static placeholders when offline.
+ * which the ActionPanel reads to prefill the Take offer flow. Offers are fetched from the API
+ * server when one is running, falling back to the book that ships with the app. Both carry real
+ * EIP-712 signatures and both settle — the fallback is checked against the deployed notary
+ * before it is committed (`node offchain/preflight_offers.js`).
  */
 export function OfferBook() {
   const [params] = useSearchParams();
@@ -38,19 +40,22 @@ export function OfferBook() {
           </div>
         </div>
         {/*
-          Was `badge-ok` / `badge-warn` around "{n} signed" / "{n} static". Two
-          issues. Green-vs-amber on a count reads as a threshold being crossed,
-          when what's actually being reported is *provenance* — where the offers
-          came from. And "2 static" is a state the reader has no way to interpret
-          without knowing the fallback exists.
-
-          Live is the unremarkable case, so it gets the neutral treatment plus a
-          status dot; the fallback keeps amber, because that one genuinely is a
-          caution — those signatures will not settle.
+          This badge reports *provenance*, not health. Both sources are genuine
+          signed offers that settle, so neither gets the caution tone — amber
+          here used to mean "these will revert", and that is no longer true of
+          the fallback. What still differs is expiry horizon: the API re-signs on
+          request, the shipped book carries a fixed 90-day expiry. That is what
+          the tooltip explains, and it is the only reason a reader would care
+          which one they are looking at.
         */}
-        <span className={live ? "badge-neutral" : "badge-warn"} title={live ? undefined : "The offer API is unreachable. These placeholder offers cannot be filled on-chain."}>
-          <span className={live ? "status-dot-ok" : "status-dot-warn"} />
-          {live ? "Live signatures" : "Offline placeholders"}
+        <span
+          className="badge-neutral"
+          title={live
+            ? "Offers re-signed on request by the local API server."
+            : "The offer API is not running, so the book that ships with the app is shown. These are real signed offers and settle on-chain."}
+        >
+          <span className="status-dot-ok" />
+          {live ? "Freshly signed" : "Shipped book"}
         </span>
       </div>
 

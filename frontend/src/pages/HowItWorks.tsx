@@ -1,5 +1,6 @@
 import { Link } from "react-router-dom";
-import { IconCheck, IconX, IconArrowRight, IconShield } from "../components/icons";
+import { IconCheck, IconX, IconArrowRight, IconShield, IconLayers } from "../components/icons";
+import { LADDER } from "../config/chain";
 
 /**
  * Plain-language walkthrough of the whole stack. Mirrors Explanation.md but for people who prefer
@@ -28,8 +29,8 @@ export function HowItWorks() {
         <h1 className="mt-3 text-h1 md:text-display text-slate-50">How Covenant works</h1>
         <p className="mt-4 text-body-lg text-muted">
           Fixed-rate credit for regulated institutions. The whole system in one page — the offer
-          flow, the compliance gate, and the wrapped-A-token layer that closes the flash-loan
-          surface.
+          flow, the compliance gate, the credit ladder that prices a credential into leverage, and
+          the wrapped-A-token layer that closes the flash-loan surface.
         </p>
       </header>
 
@@ -37,7 +38,7 @@ export function HowItWorks() {
       <section className="space-y-6">
         <SectionTitle
           title="The offer lifecycle"
-          subtitle="Three steps from a signed message to a settled position."
+          subtitle="Three steps from a signed message to a settled position. Credit units are sold at a discount and redeemed 1:1 at maturity — the discount is the interest."
         />
 
         {/* The StepIndicator marked step 1 `active: true` and steps 2-3 inactive,
@@ -146,6 +147,99 @@ export function HowItWorks() {
               cached on-chain; both are staticcalls made at the moment of the fill.
             </p>
           </div>
+        </div>
+      </section>
+
+      {/* ── The credit ladder ──────────────────────────────────────────────
+          Added because the gate story stopped at a binary: you pass or you don't.
+          That undersells what the credential actually carries. An A-Pass has a
+          sub-tier, and because a gate's sub-tier bar is hashed into the market id,
+          a market's leverage and its credential requirement are one object. That
+          is the mechanism that turns compliance from a checkpoint into pricing —
+          and it is the part of the design a reader is least likely to infer. */}
+      <section className="space-y-6">
+        <SectionTitle
+          title="The credit ladder"
+          subtitle="One gate answers yes or no. A ladder of gates answers on what terms. Better credentials clear a higher bar, and a higher bar carries more leverage."
+        />
+
+        <div className="card overflow-hidden">
+          <div className="card-header">
+            <div className="flex items-center gap-2.5">
+              <IconLayers className="w-4 h-4 text-brand-400" />
+              <div className="card-title">Rungs</div>
+            </div>
+            <span className="text-micro font-semibold uppercase text-muted">
+              Sub-tier bar → leverage
+            </span>
+          </div>
+          <table className="w-full text-body-sm">
+            <thead>
+              <tr className="border-b border-line">
+                <th className="text-left font-semibold text-micro uppercase text-muted px-5 py-3">
+                  Rung
+                </th>
+                <th className="text-left font-semibold text-micro uppercase text-muted px-5 py-3">
+                  Who clears it
+                </th>
+                <th className="text-right font-semibold text-micro uppercase text-muted px-5 py-3">
+                  Sub-tier
+                </th>
+                <th className="text-right font-semibold text-micro uppercase text-muted px-5 py-3">
+                  LLTV
+                </th>
+              </tr>
+            </thead>
+            <tbody>
+              {LADDER.rungs.map((rung) => (
+                <tr key={rung.key} className="border-b border-line last:border-0">
+                  <td className="px-5 py-3.5 text-slate-100">{rung.label}</td>
+                  <td className="px-5 py-3.5 text-slate-300">{rung.qualifies}</td>
+                  <td className="px-5 py-3.5 text-right font-mono tabular-nums text-slate-300">
+                    {rung.minSubTier}
+                  </td>
+                  <td className="px-5 py-3.5 text-right font-mono tabular-nums text-slate-100">
+                    {((Number(rung.lltv) / 1e18) * 100).toFixed(1)}%
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+
+        <div className="grid md:grid-cols-2 gap-5">
+          <div className="card p-6 space-y-3 border-brand-500/30">
+            <div className="card-title">Terms and policy are one object</div>
+            <p className="text-body-sm text-slate-300 leading-relaxed">
+              A market id is the keccak of every field, gate address included. So the 91.5% market
+              is cryptographically bound to its sub-tier-30 gate — nobody can offer that leverage to
+              a wallet that clears a lower bar, because doing so would be a different market with a
+              different id.
+            </p>
+          </div>
+          <div className="card p-6 space-y-3">
+            <div className="card-title">Under-collateralisation, earned</div>
+            <p className="text-body-sm text-slate-300 leading-relaxed">
+              Higher LLTV means less collateral for the same loan. A $100k borrow needs about $260k
+              of collateral on the retail rung and about $109k on the institutional one — 2.4× less.
+              The credential is what closes that gap, which makes verification worth something
+              beyond access.
+            </p>
+            <div className="pt-3 border-t border-line text-micro font-mono text-subtle">
+              src/periphery/CreditLadderLens.sol
+            </div>
+          </div>
+        </div>
+
+        <div className="card p-6 flex flex-col sm:flex-row sm:items-center justify-between gap-5">
+          <p className="text-body-sm text-muted max-w-xl">
+            The ladder page resolves your wallet against every rung in one{" "}
+            <code className="code-inline">eth_call</code> and shows what each would require.
+          </p>
+          <Link to="/ladder" className="btn-secondary flex-shrink-0">
+            View the ladder
+            <IconArrowRight className="w-4 h-4" />
+          </Link>
         </div>
       </section>
 

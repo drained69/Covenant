@@ -6,6 +6,7 @@ import { Positions } from "./pages/Positions";
 import { Faucet } from "./pages/Faucet";
 import { Compliance } from "./pages/Compliance";
 import { HowItWorks } from "./pages/HowItWorks";
+import { Ladder } from "./pages/Ladder";
 import { CHAIN, EXPLORER, ADDRESSES } from "./config/chain";
 import { IconExternal } from "./components/icons";
 
@@ -19,6 +20,7 @@ export function App() {
           <Route path="/markets" element={<Markets />} />
           <Route path="/markets/:marketId" element={<MarketDetail />} />
           <Route path="/positions" element={<Positions />} />
+          <Route path="/ladder" element={<Ladder />} />
           <Route path="/faucet" element={<Faucet />} />
           <Route path="/compliance" element={<Compliance />} />
           <Route path="/how-it-works" element={<HowItWorks />} />
@@ -27,7 +29,7 @@ export function App() {
       </main>
 
       {/*
-        The footer was a single row: a tagline on the left, "© 2026 drained99" on
+        The footer was a single row: a tagline on the left, "© 2026 Covenant Team" on
         the right. Three problems.
 
         1. `justify-between` with no wrap — at ~640px the two strings met in the
@@ -52,14 +54,19 @@ export function App() {
           </div>
 
           <nav className="flex flex-wrap gap-x-10 gap-y-6" aria-label="Footer">
+            {/* Groups mirror the header's split: the three transacting
+                destinations under Protocol, the reference and one-time pages
+                under Learn. The faucet moves out of Protocol — it is testnet
+                scaffolding, not part of the credit product. */}
             <FooterGroup title="Protocol">
               <FooterLink to="/markets">Markets</FooterLink>
               <FooterLink to="/positions">Positions</FooterLink>
-              <FooterLink to="/faucet">Testnet faucet</FooterLink>
+              <FooterLink to="/ladder">Credit ladder</FooterLink>
             </FooterGroup>
             <FooterGroup title="Learn">
               <FooterLink to="/how-it-works">How it works</FooterLink>
               <FooterLink to="/compliance">Compliance</FooterLink>
+              <FooterLink to="/faucet">Testnet faucet</FooterLink>
             </FooterGroup>
             <FooterGroup title="On-chain">
               <FooterExternal href={`${EXPLORER}/address/${ADDRESSES.covenant}`}>

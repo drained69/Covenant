@@ -196,7 +196,7 @@ function TakeOfferForm({ market }: { market: MarketMeta }) {
           </button>
         )}
         <button className="btn-primary flex-1"
-          disabled={!parsedUnits || !address || (showApprove ?? false) || pending || picked.notaryData === "0xdemo"}
+          disabled={!parsedUnits || !address || (showApprove ?? false) || pending}
           onClick={() => parsedUnits && send("Take offer", {
             address: ADDRESSES.covenant, abi: COVENANT_ABI,
             functionName: "fillOffer",
@@ -218,14 +218,6 @@ function TakeOfferForm({ market }: { market: MarketMeta }) {
         both satisfy the market's gate, or the transaction reverts with
         <code className="mx-1">LenderIneligible</code>/<code>BorrowerIneligible</code>.
       </p>
-      {picked.notaryData === "0xdemo" && (
-        <div className="text-body-sm text-warn/90 px-3 py-2 rounded-md bg-warn/10 border border-warn/30">
-          <strong>Take offer is disabled for this offer.</strong> This is a static fallback whose
-          notary signature is a placeholder, so <code>fillOffer</code> can never settle — it would
-          revert with <code>NotaryFail</code>. Start the API server
-          (<code>python3 offchain/server.py</code>) to load real signed offers.
-        </div>
-      )}
     </div>
   );
 }

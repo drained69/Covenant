@@ -1,20 +1,24 @@
 import { useEffect, useState } from "react";
 import { useSearchParams } from "react-router-dom";
 import { useAccount, usePublicClient } from "wagmi";
-import { ADDRESSES } from "../config/chain";
+import { ADDRESSES, LADDER, EXPLORER, CHAIN } from "../config/chain";
 import { CLEANVERSE_VALIDATOR_ABI } from "../config/abis";
+import { apiUrl } from "../config/api";
 import { useCompliance } from "../hooks/useCompliance";
+import { useLadder } from "../hooks/useLadder";
+import { IconExternal, IconCheck, IconAlert, IconWallet } from "../components/icons";
 
-type Tab = "status" | "register" | "check";
+type Tab = "status" | "register" | "check" | "verify";
 
 const TABS: { id: Tab; label: string }[] = [
   { id: "status", label: "My status" },
   { id: "register", label: "Get verified" },
   { id: "check", label: "Check any wallet" },
+  { id: "verify", label: "How to verify" },
 ];
 
 const isTab = (v: string | null): v is Tab =>
-  v === "status" || v === "register" || v === "check";
+  v === "status" || v === "register" || v === "check" || v === "verify";
 
 export function Compliance() {
   const { address, isConnected } = useAccount();
@@ -62,6 +66,7 @@ export function Compliance() {
       )}
       {tab === "register" && <RegisterTab onViewStatus={() => setTab("status")} />}
       {tab === "check" && <CheckTab address={address} client={client} />}
+      {tab === "verify" && <VerifyTab address={address} />}
     </section>
   );
 }
@@ -78,13 +83,17 @@ function StatusTab({
   onGetVerified: () => void;
 }) {
   const status = useCompliance(address as `0x${string}` | undefined);
+  // Zero borrow amount: on this tab the ladder is read for *registration state*,
+  // not for a sizing decision, so `collateralRequired` is irrelevant and a 0
+  // keeps the lens call free of an arbitrary notional the user never entered.
+  const ladder = useLadder(address as `0x${string}` | undefined, 0n);
 
   if (!isConnected) {
     return (
       <div className="card">
         <div className="empty-state">
           <div className="empty-state-icon">
-            <IconWallet />
+            <IconWallet className="w-5 h-5" />
           </div>
           <p className="empty-state-title">Wallet not connected</p>
           <p className="empty-state-body">
@@ -118,7 +127,11 @@ function StatusTab({
               eligible ? "bg-ok/10 text-ok" : "bg-warn/10 text-warn"
             }`}
           >
-            {eligible ? <IconCheck /> : <IconAlert />}
+            {eligible ? (
+              <IconCheck className="w-5 h-5" />
+            ) : (
+              <IconAlert className="w-5 h-5" />
+            )}
           </div>
           <div className="space-y-1.5 min-w-0">
             <p className={`text-h3 ${eligible ? "text-ok" : "text-warn"}`}>
@@ -137,7 +150,7 @@ function StatusTab({
 
       <div className="card">
         <div className="card-header">
-          <span className="card-title">Gate evaluation</span>
+          <span className="card-title">Gate evaluation · primary market</span>
           <span className={eligible ? "badge-ok" : "badge-warn"}>
             <span className={eligible ? "status-dot-ok" : "status-dot-warn"} />
             {eligible ? "Eligible" : "Denied"}
@@ -145,8 +158,8 @@ function StatusTab({
         </div>
         <div className="card-body space-y-3.5">
           <Row label="Wallet" value={address ?? ""} mono />
-          <Row label="Validator" value={ADDRESSES.validator} mono />
-          <Row label="Pool / gate" value={ADDRESSES.gate} mono />
+          <AddressRow label="Validator (CCP V2)" value={ADDRESSES.validator} />
+          <AddressRow label="Pool / gate" value={ADDRESSES.gate} />
           <div className="divider pt-3.5">
             <div className="space-y-3.5">
               <Row
@@ -169,6 +182,13 @@ function StatusTab({
         </div>
       </div>
 
+      {/* Ladder rungs. Each rung is its own market with its own gate, so a wallet
+          that clears the primary gate can still be denied here — and right now
+          every wallet is, because no rung gate has finished registration. The
+          per-rung verdict is the lens's `accessible`, not this page's own read:
+          the lens asks the gate the same question the market asks it. */}
+      <LadderGateCard ladder={ladder} isConnected={isConnected} />
+
       {!eligible && (
         <div className="card border-brand-500/25">
           <div className="card-body flex flex-wrap items-center gap-4">
@@ -185,6 +205,134 @@ function StatusTab({
           </div>
         </div>
       )}
+    </div>
+  );
+}
+
+/**
+ * An address with an explorer deep-link. Same row geometry as `Row` so the two
+ * interleave without a visible seam, but the value is an anchor rather than a
+ * string — a reader who wants to confirm a gate's source or its proxy
+ * implementation should not have to copy the hex out by hand.
+ */
+function AddressRow({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="flex justify-between items-center gap-6">
+      <span className="text-body-sm text-muted flex-shrink-0">{label}</span>
+      <a
+        href={`${EXPLORER}/address/${value}`}
+        target="_blank"
+        rel="noreferrer noopener"
+        className="group inline-flex items-center gap-1.5 min-w-0"
+      >
+        <span className="text-body-sm font-mono truncate text-slate-100 group-hover:text-brand-300 transition-colors">
+          {value}
+        </span>
+        <IconExternal className="w-3.5 h-3.5 shrink-0 text-muted group-hover:text-brand-300 transition-colors" />
+      </a>
+    </div>
+  );
+}
+
+/**
+ * The three credit-ladder gates, each with its own registration state.
+ *
+ * This exists because the page previously knew about exactly one gate. A wallet
+ * could read "ELIGIBLE" here, open the ladder, and be denied on every rung with
+ * no explanation of which gate said no — the compliance page named a verdict it
+ * did not fully own.
+ *
+ * Registration state is read from the lens's `minSubTier`, where 0 is the
+ * unregistered sentinel and not a real bar of zero: an unregistered gate carries
+ * an empty rule list and denies every wallet, credentialed or not. Reporting
+ * that as "you do not qualify" would blame the visitor's credentials for the
+ * protocol's own pending step.
+ */
+function LadderGateCard({
+  ladder,
+  isConnected,
+}: {
+  ladder: ReturnType<typeof useLadder>;
+  isConnected: boolean;
+}) {
+  const { deployed, resolved, rungs } = ladder;
+
+  return (
+    <div className="card">
+      <div className="card-header">
+        <span className="card-title">Gate evaluation · credit ladder rungs</span>
+        {ladder.loading ? (
+          <span className="badge-neutral" role="status">
+            Resolving…
+          </span>
+        ) : (
+          <span className="badge-neutral">{rungs.length} gates</span>
+        )}
+      </div>
+      <div className="card-body space-y-4">
+        <p className="text-body-sm text-muted">
+          Each rung is a separate market with its own gate and its own credential bar. Clearing the
+          primary gate above does not clear these — the gate address is hashed into the market id,
+          so a rung's terms and its policy are one object.
+        </p>
+
+        <div className="space-y-3.5">
+          {LADDER.rungs.map((config, i) => {
+            const rung = rungs[i];
+            const bar = deployed && rung?.minSubTier ? rung.minSubTier : null;
+            const unregistered = deployed && rung?.minSubTier === 0;
+            const accessible = rung?.accessible === true;
+
+            return (
+              <div
+                key={config.key}
+                className="rounded-lg border border-line bg-ink-950/40 p-3.5 space-y-2.5"
+              >
+                <div className="flex flex-wrap items-center justify-between gap-3">
+                  <span className="text-body-sm font-semibold text-slate-100">{config.label}</span>
+                  {!deployed ? (
+                    <span className="badge-neutral">Not deployed</span>
+                  ) : accessible ? (
+                    <span className="badge-ok">
+                      <span className="status-dot-ok" />
+                      Eligible
+                    </span>
+                  ) : unregistered ? (
+                    <span className="badge-warn">Awaiting registration</span>
+                  ) : !isConnected || !resolved ? (
+                    <span className="badge-neutral">Not evaluated</span>
+                  ) : (
+                    <span className="badge-neutral">Denied</span>
+                  )}
+                </div>
+                <AddressRow label="Gate" value={rung?.gate ?? config.gate ?? "—"} />
+                <Row
+                  label="Credential bar"
+                  value={
+                    bar
+                      ? `Sub-tier ${bar}`
+                      : unregistered
+                        ? `Sub-tier ${config.minSubTier} (rule list empty)`
+                        : `Sub-tier ${config.minSubTier} (intended)`
+                  }
+                />
+              </div>
+            );
+          })}
+        </div>
+
+        {deployed && rungs.some((r) => r.minSubTier === 0) && (
+          <div className="flex items-start gap-2.5 rounded-lg border border-warn/35 bg-warn/[0.06] p-3.5 text-body-sm text-warn">
+            <IconAlert className="w-4 h-4 shrink-0 mt-0.5" />
+            <span>
+              These gates are deployed and whitelisted but have not completed Cleanverse
+              registration, so their rule lists are empty and they deny every wallet — including
+              wallets holding a valid A-Pass. Nothing on this card reflects your credentials until
+              registration lands.
+            </span>
+          </div>
+        )}
+      </div>
     </div>
   );
 }
@@ -227,7 +375,7 @@ function RegisterTab({ onViewStatus }: { onViewStatus: () => void }) {
     setSubmitting(true);
     setResult(null);
     try {
-      const resp = await fetch("/api/generate-apass", {
+      const resp = await fetch(apiUrl("/api/generate-apass"), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -293,7 +441,7 @@ function RegisterTab({ onViewStatus }: { onViewStatus: () => void }) {
         <div className="card border-ok/35">
           <div className="card-body flex items-start gap-4">
             <div className="flex-shrink-0 w-10 h-10 rounded-full flex items-center justify-center bg-ok/10 text-ok">
-              <IconCheck />
+              <IconCheck className="w-5 h-5" />
             </div>
             <div className="space-y-1.5 min-w-0">
               <p className="text-h3 text-ok">Already verified</p>
@@ -409,7 +557,7 @@ function RegisterTab({ onViewStatus }: { onViewStatus: () => void }) {
           {!isConnected ? (
             <div className="empty-state">
               <div className="empty-state-icon">
-                <IconWallet />
+                <IconWallet className="w-5 h-5" />
               </div>
               <p className="empty-state-title">Wallet not connected</p>
               <p className="empty-state-body">
@@ -740,6 +888,205 @@ function CheckTab({
   );
 }
 
+/* ── How to verify ────────────────────────────────────────────────────── */
+
+/**
+ * A copyable command. The copy affordance is a text button rather than an icon
+ * because the shared icon set has no clipboard glyph, and inventing one here is
+ * exactly the drift the icons module was consolidated to stop.
+ *
+ * `navigator.clipboard` is absent on plain-http origins, so the handler checks
+ * for it instead of assuming a promise comes back — the command is selectable
+ * either way, and a dead button that silently throws is worse than one that
+ * simply never confirms.
+ */
+function CopyBlock({ label, code }: { label: string; code: string }) {
+  const [copied, setCopied] = useState(false);
+
+  async function copy() {
+    if (!navigator.clipboard) return;
+    try {
+      await navigator.clipboard.writeText(code);
+      setCopied(true);
+      window.setTimeout(() => setCopied(false), 1600);
+    } catch {
+      /* Clipboard denied by permissions policy. The text stays selectable. */
+    }
+  }
+
+  return (
+    <div className="rounded-lg border border-line bg-ink-950/70 overflow-hidden">
+      <div className="flex items-center justify-between gap-4 px-3.5 py-2 border-b border-line">
+        <span className="text-micro font-semibold uppercase text-muted">{label}</span>
+        <button
+          type="button"
+          onClick={copy}
+          className="text-micro font-semibold uppercase text-muted hover:text-brand-300 transition-colors"
+        >
+          {copied ? "Copied" : "Copy"}
+        </button>
+      </div>
+      <pre className="px-3.5 py-3 overflow-x-auto text-body-sm font-mono text-brand-300 whitespace-pre">
+        {code}
+      </pre>
+    </div>
+  );
+}
+
+/**
+ * One verification step: the call, what a pass actually proves, and what a
+ * failure actually means. Both halves are required — a check whose failure mode
+ * is unexplained teaches a visitor to read `false` as "my credentials are bad",
+ * which on this protocol is usually wrong.
+ */
+function VerifyStep({
+  n,
+  title,
+  proves,
+  fails,
+  children,
+}: {
+  n: number;
+  title: string;
+  proves: string;
+  fails: string;
+  children?: React.ReactNode;
+}) {
+  return (
+    <div className="card">
+      <div className="card-header">
+        <span className="card-title">
+          {n}. {title}
+        </span>
+      </div>
+      <div className="card-body space-y-4">
+        <div className="grid gap-3 sm:grid-cols-2">
+          <div className="rounded-lg border border-line bg-ink-950/40 p-3.5">
+            <div className="text-micro font-semibold uppercase text-muted mb-1.5">
+              What a pass proves
+            </div>
+            <p className="text-body-sm text-subtle">{proves}</p>
+          </div>
+          <div className="rounded-lg border border-line bg-ink-950/40 p-3.5">
+            <div className="text-micro font-semibold uppercase text-muted mb-1.5">
+              What a failure means
+            </div>
+            <p className="text-body-sm text-subtle">{fails}</p>
+          </div>
+        </div>
+        {children}
+      </div>
+    </div>
+  );
+}
+
+/**
+ * The independent-verification tab.
+ *
+ * The other three tabs all ask the visitor to trust this frontend: `StatusTab`
+ * renders a verdict, `CheckTab` runs the reads for you. Neither is evidence — a
+ * compliance-gated protocol that can only be confirmed through its own UI has
+ * not actually shown anyone anything. This tab exists so a visitor can reproduce
+ * every gate decision from a terminal, against a public RPC, with no frontend in
+ * the path.
+ *
+ * The steps mirror the exact order the gate evaluates in-transaction, so a
+ * failure here localizes to the same step that would revert on-chain.
+ */
+function VerifyTab({ address }: { address: string | undefined }) {
+  // Falls back to the zero address so the commands stay copy-pasteable while
+  // disconnected. A placeholder like `<your address>` would paste as a shell
+  // syntax error; the zero address returns a clean `false` instead, which is
+  // the correct answer for a wallet that holds no credential.
+  const wallet = address ?? "0x0000000000000000000000000000000000000000";
+  const rpc = CHAIN.rpcUrls.default.http[0];
+
+  return (
+    <div className="space-y-5">
+      <div className="card">
+        <div className="card-body space-y-3">
+          <p className="text-body-sm text-muted">
+            Every check below is a read-only <code className="font-mono text-brand-300">eth_call</code>{" "}
+            against a public RPC. Nothing here needs this site — paste the commands into a terminal
+            with{" "}
+            <a
+              href="https://getfoundry.sh"
+              target="_blank"
+              rel="noreferrer noopener"
+              className="text-brand-300 hover:underline"
+            >
+              Foundry
+            </a>{" "}
+            installed and you should reproduce the gate's verdict exactly.
+          </p>
+          <div className="divider pt-3 space-y-2.5">
+            <AddressRow label="CVI validator" value={ADDRESSES.validator} />
+            <AddressRow label="Pool gate" value={ADDRESSES.gate} />
+            <AddressRow label="Wallet being checked" value={wallet} />
+          </div>
+        </div>
+      </div>
+
+      <VerifyStep
+        n={1}
+        title="Is the gate registered with Cleanverse?"
+        proves="The gate carries a non-empty rule list, so it can evaluate credentials at all."
+        fails="The gate is deployed but its Cleanverse registration is still pending. It denies every wallet — credentialed or not. This is a protocol-side step, not a problem with your credentials."
+      >
+        <CopyBlock
+          label="cast call"
+          code={`cast call ${ADDRESSES.validator} \\\n  "isRegistered(address)(bool)" \\\n  ${ADDRESSES.gate} \\\n  --rpc-url ${rpc}`}
+        />
+      </VerifyStep>
+
+      <VerifyStep
+        n={2}
+        title="Does this wallet hold a valid A-Pass?"
+        proves="Cleanverse has issued this wallet a credential that satisfies the gate's sub-tier bar."
+        fails="Either the wallet holds no A-Pass, or it holds one below the sub-tier this gate requires. Step 3 tells you which."
+      >
+        <CopyBlock
+          label="cast call"
+          code={`cast call ${ADDRESSES.validator} \\\n  "complianceVerify(address,address)(bool)" \\\n  ${ADDRESSES.gate} ${wallet} \\\n  --rpc-url ${rpc}`}
+        />
+      </VerifyStep>
+
+      <VerifyStep
+        n={3}
+        title="Which sub-tier does each ladder rung require?"
+        proves="The bar each rung enforces, read from the gate itself rather than from this page's copy."
+        fails="A rung returning 0 is unregistered, not open to everyone — 0 is the sentinel for an empty rule list, and an empty rule list denies all."
+      >
+        <CopyBlock
+          label="cast call"
+          code={LADDER.rungs
+            .filter((r) => r.gate)
+            .map(
+              (r) =>
+                `# ${r.label ?? "rung"}\ncast call ${r.gate} "minSubTier()(uint8)" --rpc-url ${rpc}`,
+            )
+            .join("\n\n")}
+        />
+      </VerifyStep>
+
+      <div className="card">
+        <div className="card-header">
+          <span className="card-title">Reading the results together</span>
+        </div>
+        <div className="card-body">
+          <p className="text-body-sm text-muted">
+            The gate admits a wallet only when step 1 and step 2 both return{" "}
+            <code className="font-mono text-brand-300">true</code>. Both reads fail closed: if the
+            validator call reverts or the RPC times out, the gate treats it as a denial rather than
+            as an approval. A <code className="font-mono text-brand-300">false</code> from step 1
+            therefore makes step 2 irrelevant — the gate never reaches it.
+          </p>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 /* ── Shared pieces ────────────────────────────────────────────────────── */
 
 function Row({
@@ -799,44 +1146,10 @@ function StepDot({ n, active, done }: { n: number; active: boolean; done: boolea
 
 /* ── Icons ────────────────────────────────────────────────────────────── */
 
-const svgProps = {
-  fill: "none",
-  stroke: "currentColor",
-  strokeWidth: 1.8,
-  strokeLinecap: "round" as const,
-  strokeLinejoin: "round" as const,
-};
-
-function IconWallet() {
-  return (
-    <svg className="w-5 h-5" viewBox="0 0 24 24" {...svgProps}>
-      <path d="M3 7a2 2 0 0 1 2-2h13a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V7Z" />
-      <path d="M16 12h2M3 9h17" />
-    </svg>
-  );
-}
-
-function IconCheck() {
-  return (
-    <svg className="w-5 h-5" viewBox="0 0 24 24" {...svgProps} strokeWidth={2}>
-      <path d="M20 6 9 17l-5-5" />
-    </svg>
-  );
-}
-
 function IconCheckSmall() {
   return (
-    <svg className="w-4 h-4" viewBox="0 0 24 24" {...svgProps} strokeWidth={2.5}>
+    <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.5} strokeLinecap="round" strokeLinejoin="round">
       <path d="M20 6 9 17l-5-5" />
-    </svg>
-  );
-}
-
-function IconAlert() {
-  return (
-    <svg className="w-5 h-5" viewBox="0 0 24 24" {...svgProps} strokeWidth={2}>
-      <path d="M12 9v4M12 17h.01" />
-      <path d="M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0Z" />
     </svg>
   );
 }

@@ -156,7 +156,9 @@ class Handler(BaseHTTPRequestHandler):
 
 
 def main() -> None:
-    port = int(os.environ.get("API_PORT", "3001"))
+    # Railway (and most PaaS) inject the bound port as PORT; API_PORT stays the
+    # local-dev knob that vite.config.ts proxies to.
+    port = int(os.environ.get("PORT") or os.environ.get("API_PORT") or "3001")
     server = HTTPServer(("0.0.0.0", port), Handler)
     print(f"Covenant API server listening on http://localhost:{port}")
     print(f"  chain: {CHAIN}")

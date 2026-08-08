@@ -1,4 +1,6 @@
-import { ADDRESSES, MARKETS } from "./chain";
+import { MARKETS } from "./chain";
+import { apiUrl } from "./api";
+import offerBook from "./offerBook.json";
 
 export type DemoOffer = {
   id: string;
@@ -15,94 +17,37 @@ export type DemoOffer = {
 export const DEMO_MARKET_ID = MARKETS[0].id;
 
 /**
- * Fetches freshly signed offers from the API server. Each offer has a real EIP-712 signature
- * and properly encoded notaryData so fillOffer will pass the EcrecoverNotary check on-chain.
+ * The order book shipped with the app.
+ *
+ * Every entry is a genuine EIP-712 offer signed by the maker and encoded into the
+ * `notaryData` that `fillOffer` passes to `EcrecoverNotary` — not a placeholder.
+ * Each one was checked against the deployed notary before being committed
+ * (`node offchain/preflight_offers.js`), which calls the notary's `isNotarized`
+ * view as the Covenant core and requires the `CALLBACK_SUCCESS` magic value back.
+ * So these offers settle; there is no disabled state to explain to the user.
+ *
+ * Regenerate with `node offchain/build_offer_book.js`, then re-run the pre-flight.
+ * Offers carry a 90-day expiry, so the book needs regenerating before then — the
+ * pre-flight fails loudly on an expired offer rather than letting the UI list one.
+ *
+ * Every offer has a distinct `group`. `consumed[maker][group]` is shared across
+ * offers with the same group, so identical groups would silently couple budgets:
+ * filling one offer would eat into the next one's remaining size.
+ */
+export const STATIC_OFFERS: DemoOffer[] = offerBook as DemoOffer[];
+
+/**
+ * Fetches freshly signed offers from the API server, if one is running.
+ *
+ * This is an optional upgrade rather than a requirement: it re-signs offers on
+ * demand, so expiries are always minutes away instead of months. When no server
+ * is running the baked-in book above is used, and it is equally fillable.
  */
 export async function fetchLiveOffers(): Promise<DemoOffer[]> {
-  const resp = await fetch("/api/offers");
+  const resp = await fetch(apiUrl("/api/offers"));
   const data = await resp.json();
   if (data.ok && Array.isArray(data.offers)) {
     return data.offers;
   }
   throw new Error(data.message || "Failed to fetch offers");
 }
-
-// Static fallback market definition — matches on-chain market exactly.
-const DEMO_MARKET = {
-  loanToken: ADDRESSES.usdc,
-  collateralParams: [
-    {
-      token:  ADDRESSES.wbtc,
-      lltv:   "860000000000000000",
-      maxLif: "1036269430051813471",
-      oracle: ADDRESSES.oracle,
-    },
-  ],
-  maturity:     "1820000000",
-  rcfThreshold: "0",
-  entryGate:    ADDRESSES.gate,
-  seizureGate:  ADDRESSES.gate,
-};
-
-// MAX_TICK from TickLib.sol — represents par (price ≈ 1.0). Divisible by tickSpacing (4).
-const MAX_TICK = "5820";
-const REAL_MAKER = "0x8C6eE34413f0c7D472Ab157fbED84De1234EF54F" as `0x${string}`;
-
-/**
- * Static fallback offers. Used only when the API server is unreachable. These have placeholder
- * notaryData so fillOffer won't settle — the UI shows a warning banner in that case.
- */
-export const STATIC_OFFERS: DemoOffer[] = [
-  {
-    id: "lender-100k-par",
-    label: "Fixed-rate lend · 100,000 units @ par",
-    side: "lend",
-    rateBps: 0,
-    maker: REAL_MAKER,
-    maxUnits: "100000000000",
-    expiry: Math.floor(Date.now() / 1000) + 3600,
-    offer: {
-      market: DEMO_MARKET,
-      buy: true,
-      maker: REAL_MAKER,
-      start: "0",
-      expiry: String(Math.floor(Date.now() / 1000) + 3600),
-      tick: MAX_TICK,
-      group: "0x0000000000000000000000000000000000000000000000000000000000000000",
-      callback: "0x0000000000000000000000000000000000000000",
-      callbackData: "0x",
-      receiverIfMakerIsSeller: "0x0000000000000000000000000000000000000000",
-      notary: ADDRESSES.notary,
-      reduceOnly: false,
-      maxUnits: "100000000000",
-      maxAssets: "0",
-    },
-    notaryData: "0xdemo",
-  },
-  {
-    id: "borrower-25k-par",
-    label: "Fixed-rate borrow · 25,000 units @ par",
-    side: "borrow",
-    rateBps: 0,
-    maker: REAL_MAKER,
-    maxUnits: "25000000000",
-    expiry: Math.floor(Date.now() / 1000) + 3600,
-    offer: {
-      market: DEMO_MARKET,
-      buy: false,
-      maker: REAL_MAKER,
-      start: "0",
-      expiry: String(Math.floor(Date.now() / 1000) + 3600),
-      tick: MAX_TICK,
-      group: "0x0000000000000000000000000000000000000000000000000000000000000000",
-      callback: "0x0000000000000000000000000000000000000000",
-      callbackData: "0x",
-      receiverIfMakerIsSeller: REAL_MAKER,
-      notary: ADDRESSES.notary,
-      reduceOnly: false,
-      maxUnits: "25000000000",
-      maxAssets: "0",
-    },
-    notaryData: "0xdemo",
-  },
-];

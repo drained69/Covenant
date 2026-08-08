@@ -2,9 +2,13 @@ import { useState, useEffect } from "react";
 import { fetchLiveOffers, STATIC_OFFERS, type DemoOffer } from "../config/demoOffers";
 
 /**
- * Fetches live signed offers from the API server on mount, falling back to static
- * placeholder offers if the server is unreachable. The live offers have real EIP-712
- * signatures so fillOffer will actually settle on-chain.
+ * Fetches freshly signed offers from the API server on mount, falling back to the
+ * book that ships with the app if no server is running.
+ *
+ * Both are real: every offer in either source carries a genuine EIP-712 signature
+ * and `fillOffer` settles it. `live` therefore reports provenance, not whether the
+ * offers work — it is false whenever the API is absent, which is the normal case
+ * for someone who just opened the app.
  */
 export function useOffers() {
   const [offers, setOffers] = useState<DemoOffer[]>(STATIC_OFFERS);

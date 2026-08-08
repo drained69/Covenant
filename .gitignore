@@ -3,26 +3,49 @@ cache/
 out/
 broadcast/
 
-
 # Secrets - never commit
 .env
 .env.local
+.env.sepolia.bak
 .env.*
 !.env.example
 
 # Python
 __pycache__/
 *.pyc
+*.pyo
 .pytest_cache/
 .venv/
 venv/
 env/
 
+# Node
+node_modules/
+dist/
+build/
+.next/
+coverage/
+*.tsbuildinfo
+
 # IDE / OS
 .vscode/
 .idea/
 .DS_Store
+Thumbs.db
+.claude/
+
+# Agent tooling
+.agents/
+skills-lock.json
 
 # Temporary / Scratchpad folders
 .scratchpad/
 
+# Video project (Remotion) - large local node_modules and render output
+video/
+
+# Logs and backups
+*.log
+*.bak
+*.tmp
+deployments/*.log

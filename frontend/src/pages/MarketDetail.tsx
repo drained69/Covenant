@@ -1,6 +1,6 @@
 import { useParams, Link } from "react-router-dom";
 import { MARKETS, EXPLORER, ADDRESSES } from "../config/chain";
-import { useMarketTokens } from "../hooks/useMarket";
+import { useMarket, useMarketTokens } from "../hooks/useMarket";
 import { MarketVitals } from "../components/MarketVitals";
 import { PositionCard } from "../components/PositionCard";
 import { ActionPanel } from "../components/ActionPanel";
@@ -15,6 +15,9 @@ export function MarketDetail() {
   // decide what to render afterwards.
   const market = match ?? MARKETS[0];
   const { collateral, loan } = useMarketTokens(market.id);
+  // Free: `useMarket` is cached for the session (`IMMUTABLE_QUERY`) and
+  // `useMarketTokens` already reads it, so this shares that one response.
+  const { data, isLoading } = useMarket(market.id);
 
   // Previously `?? MARKETS[0]` was the whole story: an unknown or stale market id
   // silently rendered a *different* market under the requested URL, with its real
@@ -96,7 +99,16 @@ export function MarketDetail() {
           */}
           <AddrRow label={`Collateral token (${collateral.symbol})`} addr={collateral.address} />
           <AddrRow label={`Loan token (${loan.symbol})`} addr={loan.address} />
-          <AddrRow label="Compliance gate" addr={ADDRESSES.gate} />
+          {/*
+            Two gates, both from the struct. This row was a single "Compliance
+            gate" pointing at `ADDRESSES.gate` — the deployment's gate, not this
+            market's, and only one of the two the market actually carries. A
+            market can name a different `entryGate` and `seizureGate`, or leave
+            either unset, and the page verifying addresses against a second
+            source was the last place that should have been guessing.
+          */}
+          <AddrRow label="Entry gate" addr={data?.entryGate} loading={isLoading} />
+          <AddrRow label="Seizure gate" addr={data?.seizureGate} loading={isLoading} />
           <AddrRow label="Market id" addr={market.id} isMarket />
         </div>
       </div>

@@ -30,7 +30,11 @@ type Market = (typeof MARKETS)[number];
  */
 export function MarketCard({ market }: { market: Market }) {
   const { data, isLoading } = useMarket(market.id);
-  const { totalUnits, withdrawable } = useMarketVitals(market.id);
+  const {
+    data: vitals,
+    isLoading: vitalsLoading,
+    isError: vitalsError,
+  } = useMarketVitals(market.id);
   const { collateral, loan } = useMarketTokens(market.id);
   const { usd } = useOraclePrice();
 
@@ -45,17 +49,16 @@ export function MarketCard({ market }: { market: Market }) {
   const matured = days !== undefined && days <= 0;
 
   /*
-    Withdrawable as a share of total credit, in basis points, computed in bigint
-    so a large 18-decimal supply doesn't lose precision through a float. Guarded
-    on `> 0n` because an empty market divides by zero, and clamped because the
-    two reads are separate calls that can land a block apart.
+    `totalUnits` and `withdrawable` now arrive from a single `marketState` call,
+    so they are always from the same block and the ratio between them is a fact
+    rather than an artifact of two reads racing. That is why `withdrawablePct`
+    is no longer clamped at the source — see `useMarketVitals`. Only the bar's
+    CSS width is clamped here, since a width above 100% would overflow its track.
   */
-  const total = totalUnits.data;
-  const avail = withdrawable.data;
-  const availPct =
-    total !== undefined && avail !== undefined && total > 0n
-      ? Math.min(100, Math.max(0, Number((avail * 10_000n) / total) / 100))
-      : undefined;
+  const total = vitals.totalUnits;
+  const avail = vitals.withdrawable;
+  const availPct = vitals.withdrawablePct;
+  const barPct = availPct !== undefined ? Math.min(100, Math.max(0, availPct)) : 0;
 
   // The configured `name` packs pair, tenor, and attribute into one string
   // ("tWBTC / tUSDC · 90-day · compliance-gated"). A title should be a name, not
@@ -93,9 +96,19 @@ export function MarketCard({ market }: { market: Market }) {
           two different visual languages. State belongs in the header; the
           durable product attribute moved to the footer as a trust mark.
         */}
+        {/*
+          `tickSpacing === 0` is the protocol's own "no market behind this id"
+          predicate — every entry point reverts `MarketNotCreated` on it. A config
+          entry pointing at an uncreated market now says so, instead of rendering
+          as a live market that happens to hold zero credit.
+        */}
         <span className="badge-neutral flex-shrink-0">
-          <span className={matured ? "status-dot-warn" : "status-dot-ok"} />
-          {matured ? "Matured" : "Open"}
+          <span
+            className={
+              vitals.exists === false || matured ? "status-dot-warn" : "status-dot-ok"
+            }
+          />
+          {vitals.exists === false ? "Not created" : matured ? "Matured" : "Open"}
         </span>
       </div>
 
@@ -103,8 +116,24 @@ export function MarketCard({ market }: { market: Market }) {
       <div className="px-6 py-5">
         <div className="section-label">Total credit</div>
 
-        {totalUnits.isLoading ? (
+        {vitalsLoading ? (
           <div className="skeleton mt-2 h-8 w-48" />
+        ) : total === undefined ? (
+          /*
+            A read that failed is not an empty market. This is the figure the card
+            exists to rank markets by, so rendering `0` for an unanswered call
+            would be the most consequential lie available to it.
+          */
+          <div
+            className="mt-1.5 text-h2 text-warn/70"
+            title={
+              vitalsError
+                ? "marketState() did not answer for this market."
+                : "This market's state could not be read from the chain."
+            }
+          >
+            unavailable
+          </div>
         ) : (
           /*
             One figure, one rank. At `h2` this outranks every other number on
@@ -136,7 +165,7 @@ export function MarketCard({ market }: { market: Market }) {
             >
               <div
                 className="h-full rounded-full bg-slate-300/60 transition-[width] duration-500 ease-out"
-                style={{ width: `${availPct}%` }}
+                style={{ width: `${barPct}%` }}
               />
             </div>
             <div className="mt-2 flex items-baseline justify-between gap-4 text-body-sm">
@@ -147,6 +176,19 @@ export function MarketCard({ market }: { market: Market }) {
                 {availPct.toFixed(0)}%
               </span>
             </div>
+          </div>
+        )}
+
+        {/*
+          A non-zero loss factor means lender credit in this market has been
+          written down for bad debt. It is the single most consequential fact a
+          lender can learn about a market, and until `marketState` was read as
+          one call the UI had no way to show it at all.
+        */}
+        {vitals.hasLosses && (
+          <div className="mt-3 text-body-sm text-warn/80">
+            Bad debt has been socialised in this market — lender credit is
+            written down.
           </div>
         )}
       </div>

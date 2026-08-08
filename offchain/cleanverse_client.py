@@ -228,6 +228,36 @@ class CleanverseClient:
         self._require_chain(chain)
         return self._post(Endpoints.VALIDATOR_IS_REGISTER, {"chain": chain, "contract_address": pool})
 
+    @staticmethod
+    def build_rule(
+        *,
+        min_sub_tier: int = 0,
+        min_tier: int = 0,
+        allowed_group: str = "",
+        allowed_sub_group: str = "",
+        is_black_list: bool = False,
+        countries: list[str] | None = None,
+    ) -> dict[str, Any]:
+        """
+        Builds a CCP V2 `Rule` object. Fields AND-compose within one rule; rules OR-compose
+        across a pool's rule list, so a wallet clears a pool by satisfying any single rule.
+
+        A rule with every field at its zero value accepts all tiers, groups, and countries —
+        that is the default `register_pool` sends when no rule is supplied.
+
+        For the tiered credit ladder, `min_sub_tier` is the field that matters: `subTier` is
+        settable at issuance (1-99), whereas `tier` is server-assigned from KYC depth and so
+        cannot be used to key the rungs.
+        """
+        return {
+            "allowed_group": allowed_group,
+            "allowed_sub_group": allowed_sub_group,
+            "min_tier": min_tier,
+            "min_sub_tier": min_sub_tier,
+            "is_black_list": is_black_list,
+            "countries": countries or [],
+        }
+
     def register_pool(
         self,
         chain: str,
@@ -241,14 +271,18 @@ class CleanverseClient:
 
         The current `/validator/register` API requires:
           - `chain`, `contract_address`
-          - `rule`  — an API-layer initial compliance rule (allowed_group, allowed_sub_group,
+          - `rule`  — the pool's initial compliance rule (allowed_group, allowed_sub_group,
             min_tier, min_sub_tier, is_black_list, countries). Defaults to a permissive rule
-            that accepts all tiers/groups with no country restrictions.
+            that accepts all tiers/groups with no country restrictions. Use `build_rule`.
           - `owner_signature` — EIP-191 personal_sign by the contract deployer over the
             message `chain + contract_address_lowercase_hex`.
 
-        After registration, on-chain policy is managed via `setRule` / `addRule` wrappers,
-        not by the `rule` object sent here.
+        **This `rule` is the pool's on-chain policy, not a separate API-layer copy.** Cleanverse
+        submits the rule-setting transaction itself, and the result is readable on-chain through
+        `validator.getRulesV2(pool)` (and hence `CleanversePoolGate.getRules()`). The gate's own
+        `setRule` / `addRule` wrappers target validator selectors that the implementation deployed
+        on Monad testnet does not carry, so they revert — the API is the only working write path.
+        To change a rule after registration, use `set_pool_rule` (no owner signature required).
 
         `private_key` defaults to the `PRIVATE_KEY` env var (the same key that deployed the gate).
         On success, `isRegistered(contract_address)` on-chain flips from false to true.
@@ -262,14 +296,7 @@ class CleanverseClient:
             raise CleanverseError("PRIVATE_KEY is required to sign the registration (or pass explicitly).")
 
         if rule is None:
-            rule = {
-                "allowed_group": "",
-                "allowed_sub_group": "",
-                "min_tier": 0,
-                "min_sub_tier": 0,
-                "is_black_list": False,
-                "countries": [],
-            }
+            rule = self.build_rule()
 
         signature = self._sign_register(chain, contract_address, pk)
         body = {
@@ -279,6 +306,27 @@ class CleanverseClient:
             "owner_signature": signature,
         }
         return self._post(Endpoints.VALIDATOR_REGISTER, body)
+
+    def set_pool_rule(self, chain: str, contract_address: str, rule: dict[str, Any]) -> Response:
+        """
+        Replaces a registered pool's entire rule list with a single rule.
+
+        Unlike `register_pool`, this endpoint takes **no owner signature** — but the pool must
+        already be registered. Cleanverse submits the rule-setting transaction and returns its
+        hash in `data.tx_hash`. Wait for that transaction to confirm before issuing another
+        mutation against the same pool.
+
+        This is the supported way to retune a credit-ladder rung's `min_sub_tier` after deploy.
+
+        Encrypted endpoint — the body is AES-encrypted before transmission.
+        """
+        self._require_chain(chain)
+        body = {
+            "chain": chain,
+            "contract_address": contract_address.lower(),
+            "rule": rule,
+        }
+        return self._post(Endpoints.VALIDATOR_SET_RULE, body)
 
     @staticmethod
     def _register_digest(chain: str, contract_address: str) -> str:
@@ -575,7 +623,7 @@ def _cli() -> int:
         prog="cleanverse_client.py",
         description="Cleanverse Cooperate API client (CCP V2). Reads credentials from .env.",
     )
-    sub = parser.add_subparsers(dest="cmd", metavar="{probe,register,verify,rules,is-paused}")
+    sub = parser.add_subparsers(dest="cmd", metavar="{probe,register,set-rule,verify,rules,is-paused}")
 
     sub.add_parser("probe", help="Health-check the gateway + verify api-id authentication")
 
@@ -585,10 +633,54 @@ def _cli() -> int:
     p_apass.add_argument("--country", default="", help="ISO-3166-1 alpha-2 country code (e.g. US, NG)")
     p_apass.add_argument("--name", default="", help="full name for identity data (default: Covenant User)")
     p_apass.add_argument("--override", action="store_true", help="override existing A-Pass data")
+    p_apass.add_argument(
+        "--sub-tier",
+        type=int,
+        default=0,
+        help="subTier to stamp on the credential (1-99, 0 = omit). This is the field the credit "
+        "ladder keys on: a wallet clears rung N when its subTier >= that rung's min_sub_tier. "
+        "Unlike tier, subTier is settable at issuance rather than derived from KYC depth.",
+    )
 
     p_reg = sub.add_parser("register", help="Register a contract as a pool (CCP V2 §5.4)")
     p_reg.add_argument("--chain", required=True, help="one of: solana, base, avalanche, arbitrum, ethereum, polygon, bsc, monad, hashkey, platon")
     p_reg.add_argument("--address", required=True, help="0x-prefixed contract address to register")
+    p_reg.add_argument(
+        "--min-sub-tier",
+        type=int,
+        default=0,
+        help="RuleV2.min_sub_tier bar carried in the registration body (0 = accept any subTier). "
+        "For a credit-ladder rung this is the rung's credential bar — 10/20/30 for the retail / "
+        "professional / institutional rungs. Registration is the only working write path: the "
+        "gate's on-chain setRule wrapper reverts against the deployed CCP V2 implementation.",
+    )
+    p_reg.add_argument("--min-tier", type=int, default=0, help="RuleV2.min_tier bar (0 = accept any tier)")
+    p_reg.add_argument("--allowed-group", default="", help="RuleV2.allowed_group ('' = any group)")
+    p_reg.add_argument("--allowed-sub-group", default="", help="RuleV2.allowed_sub_group ('' = any sub-group)")
+    p_reg.add_argument(
+        "--country",
+        action="append",
+        default=None,
+        dest="countries",
+        help="ISO-3166-1 alpha-2 code to allow (repeatable; omit for no country restriction)",
+    )
+    p_reg.add_argument("--black-list", action="store_true", help="treat --country as a deny list instead of an allow list")
+
+    p_set = sub.add_parser("set-rule", help="Replace a registered pool's rule list (no owner signature required)")
+    p_set.add_argument("--chain", required=True)
+    p_set.add_argument("--address", required=True, help="0x-prefixed pool address (must already be registered)")
+    p_set.add_argument("--min-sub-tier", type=int, default=0, help="RuleV2.min_sub_tier bar (0 = accept any subTier)")
+    p_set.add_argument("--min-tier", type=int, default=0, help="RuleV2.min_tier bar (0 = accept any tier)")
+    p_set.add_argument("--allowed-group", default="", help="RuleV2.allowed_group ('' = any group)")
+    p_set.add_argument("--allowed-sub-group", default="", help="RuleV2.allowed_sub_group ('' = any sub-group)")
+    p_set.add_argument(
+        "--country",
+        action="append",
+        default=None,
+        dest="countries",
+        help="ISO-3166-1 alpha-2 code to allow (repeatable; omit for no country restriction)",
+    )
+    p_set.add_argument("--black-list", action="store_true", help="treat --country as a deny list instead of an allow list")
 
     p_ver = sub.add_parser("verify", help="Verify a wallet against a registered pool")
     p_ver.add_argument("--chain", required=True)
@@ -644,11 +736,23 @@ def _cli() -> int:
         message = args.chain + addr
         pk = os.environ.get("PRIVATE_KEY")
         sig = CleanverseClient._sign_register(args.chain, addr, pk) if pk else "<PRIVATE_KEY unset>"
+        # The rule MUST be forwarded. `register_pool` defaults to `build_rule()` — an accept-anything
+        # rule — when none is passed, so omitting it here would silently register every credit-ladder
+        # rung with a bar of 0: three gates that admit any A-Pass holder at 91.5% LLTV.
+        rule = CleanverseClient.build_rule(
+            min_sub_tier=args.min_sub_tier,
+            min_tier=args.min_tier,
+            allowed_group=args.allowed_group,
+            allowed_sub_group=args.allowed_sub_group,
+            is_black_list=args.black_list,
+            countries=args.countries,
+        )
         print(f"Registering {addr} on chain '{args.chain}' …")
         print(f"  message  : \"{message}\"")
         print(f"  owner_signature: {sig}")
         print(f"  digest         : {digest}    (keccak256('{args.chain}' + address_lc))")
-        resp = client.register_pool(args.chain, addr)
+        print(f"  rule           : {json.dumps(rule)}")
+        resp = client.register_pool(args.chain, addr, rule=rule)
         print(f"  X-Request-ID sent: {client.last_request_id}    ← share this with Cleanverse")
         print()
         _dump(resp)

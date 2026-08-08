@@ -31,6 +31,82 @@ export const COVENANT_ABI = [
   { type: "function", stateMutability: "view", name: "collateral",  inputs: [{ name: "id", type: "bytes32" }, { name: "user", type: "address" }, { name: "index", type: "uint256" }], outputs: [{ type: "uint128" }] },
   { type: "function", stateMutability: "view", name: "REQUIRE_COMPLIANCE", inputs: [], outputs: [{ type: "bool" }] },
 
+  /*
+    Position and market state.
+
+    `creditOf` / `debtOf` above return the *stored* struct fields. Credit is
+    synced lazily: bad-debt slashes (`lossFactor`) and continuous-fee accrual are
+    only written into the position when something touches it. So `creditOf` is a
+    checkpoint, not a balance, and a lender's real claim drifts below it between
+    updates. `updatePositionView` applies both adjustments and returns what
+    `updatePosition` *would* write — that is the number a lender should be shown.
+    It takes the full Market struct rather than the id because it needs `maturity`
+    to bound fee accrual, so any caller must resolve `toMarket(id)` first.
+
+    `debt` needs no equivalent: it is not slashed and not fee-adjusted, so the
+    stored value is always current.
+
+    `position` returns all six scalar fields in one call, which is both cheaper
+    than six getters and atomic — the fields are read from a single storage slot
+    group at one block, so credit and debt can never be shown a block apart.
+  */
+  { type: "function", stateMutability: "view", name: "position",
+    inputs: [{ name: "id", type: "bytes32" }, { name: "user", type: "address" }],
+    outputs: [
+      { name: "credit",           type: "uint128" },
+      { name: "pendingFee",       type: "uint128" },
+      { name: "lastLossFactor",   type: "uint128" },
+      { name: "lastAccrual",      type: "uint128" },
+      { name: "debt",             type: "uint128" },
+      { name: "collateralBitmap", type: "uint128" },
+    ] },
+
+  { type: "function", stateMutability: "view", name: "updatePositionView",
+    inputs: [
+      { name: "market", type: "tuple", components: MARKET_COMPONENTS },
+      { name: "id",     type: "bytes32" },
+      { name: "user",   type: "address" },
+    ],
+    outputs: [
+      { name: "credit",     type: "uint128" },
+      { name: "pendingFee", type: "uint128" },
+      { name: "accruedFee", type: "uint128" },
+    ] },
+
+  { type: "function", stateMutability: "view", name: "collateralBitmap", inputs: [{ name: "id", type: "bytes32" }, { name: "user", type: "address" }], outputs: [{ type: "uint128" }] },
+  { type: "function", stateMutability: "view", name: "pendingFee",       inputs: [{ name: "id", type: "bytes32" }, { name: "user", type: "address" }], outputs: [{ type: "uint128" }] },
+
+  // Whole-market state in one atomic read, for the same reason `position` is one
+  // call: totalUnits and withdrawable are shown as a ratio, and two separate
+  // reads can land in different blocks and produce a ratio above 100%.
+  { type: "function", stateMutability: "view", name: "marketState",
+    inputs: [{ name: "id", type: "bytes32" }],
+    outputs: [
+      { name: "totalUnits",          type: "uint128" },
+      { name: "lossFactor",          type: "uint128" },
+      { name: "withdrawable",        type: "uint128" },
+      { name: "continuousFeeCredit", type: "uint128" },
+      { name: "settlementFeeCbp0",   type: "uint16"  },
+      { name: "settlementFeeCbp1",   type: "uint16"  },
+      { name: "settlementFeeCbp2",   type: "uint16"  },
+      { name: "settlementFeeCbp3",   type: "uint16"  },
+      { name: "settlementFeeCbp4",   type: "uint16"  },
+      { name: "settlementFeeCbp5",   type: "uint16"  },
+      { name: "settlementFeeCbp6",   type: "uint16"  },
+      { name: "continuousFee",       type: "uint32"  },
+      { name: "tickSpacing",         type: "uint8"   },
+    ] },
+
+  { type: "function", stateMutability: "view", name: "lossFactor",    inputs: [{ name: "id", type: "bytes32" }], outputs: [{ type: "uint128" }] },
+  { type: "function", stateMutability: "view", name: "continuousFee", inputs: [{ name: "id", type: "bytes32" }], outputs: [{ type: "uint32"  }] },
+
+  { type: "function", stateMutability: "view", name: "isHealthy",
+    inputs: [
+      { name: "market",   type: "tuple", components: MARKET_COMPONENTS },
+      { name: "id",       type: "bytes32" },
+      { name: "borrower", type: "address" },
+    ], outputs: [{ type: "bool" }] },
+
   { type: "function", stateMutability: "nonpayable", name: "supplyCollateral",
     inputs: [
       { name: "market", type: "tuple", components: MARKET_COMPONENTS },
@@ -189,3 +265,44 @@ export const CLEANVERSE_VALIDATOR_ABI = [
 
 /** @deprecated Kept as an alias so existing pages don't break during the CCP V2 rename. */
 export const CLEANVERSE_POOL_ABI = CLEANVERSE_VALIDATOR_ABI;
+
+// CreditLadderLens — pure-view router over the credit ladder. Holds no state and no rung
+// config: it reconstructs each rung's gate, LLTV, and oracle out of the market id via
+// covenant.toMarket(id), so a single `ladder()` call answers "which rung does this wallet
+// clear, and what would it have to post there".
+const RUNG_VIEW_COMPONENTS = [
+  { name: "marketId",           type: "bytes32" },
+  { name: "gate",               type: "address" },
+  { name: "lltv",               type: "uint256" },
+  { name: "collateralRequired", type: "uint256" },
+  { name: "minSubTier",         type: "uint8"   },
+  { name: "accessible",         type: "bool"    },
+] as const;
+
+export const CREDIT_LADDER_LENS_ABI = [
+  { type: "function", stateMutability: "view", name: "ladder",
+    inputs: [
+      { name: "wallet",        type: "address"   },
+      { name: "rungMarketIds", type: "bytes32[]" },
+      { name: "borrowAmount",  type: "uint256"   },
+    ],
+    outputs: [
+      // type(uint256).max when the wallet clears no rung.
+      { name: "bestRung", type: "uint256" },
+      { name: "rungs",    type: "tuple[]", components: RUNG_VIEW_COMPONENTS },
+    ] },
+
+  { type: "function", stateMutability: "view", name: "bestRungFor",
+    inputs: [
+      { name: "wallet",        type: "address"   },
+      { name: "rungMarketIds", type: "bytes32[]" },
+      { name: "borrowAmount",  type: "uint256"   },
+    ],
+    outputs: [
+      { name: "marketId",           type: "bytes32" },
+      { name: "lltv",               type: "uint256" },
+      { name: "collateralRequired", type: "uint256" },
+    ] },
+
+  { type: "function", stateMutability: "view", name: "COVENANT", inputs: [], outputs: [{ type: "address" }] },
+] as const;

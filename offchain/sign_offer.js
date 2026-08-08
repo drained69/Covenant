@@ -143,7 +143,18 @@ const MARKET = {
 // ─────────────────────────────────────────────────────────────────────────────
 // SIGN + ENCODE
 // ─────────────────────────────────────────────────────────────────────────────
-async function signOffer({ buy = true, maxUnits = null, expirySeconds = 3600 } = {}) {
+async function signOffer({
+  buy = true,
+  maxUnits = null,
+  expirySeconds = 3600,
+  // MAX_TICK (par). Any override must be a multiple of the market's tickSpacing (4)
+  // or fillOffer reverts with TickNotAccessible.
+  tick = 5820n,
+  // Consumption bucket. `consumed[maker][group]` is shared across every offer with
+  // the same group, so a book of independently-fillable offers needs a distinct
+  // group per offer — otherwise filling one drains the others' budgets.
+  group = ethers.ZeroHash,
+} = {}) {
   if (!CONFIG.lenderPrivateKey) {
     throw new Error("PRIVATE_KEY env var is required");
   }
@@ -157,8 +168,8 @@ async function signOffer({ buy = true, maxUnits = null, expirySeconds = 3600 } =
     maker:                   wallet.address,
     start:                   0,
     expiry:                  now + expirySeconds,
-    tick:                    5820n, // MAX_TICK (par) — divisible by tickSpacing=4
-    group:                   ethers.ZeroHash,
+    tick:                    BigInt(tick),
+    group,
     callback:                ethers.ZeroAddress,
     callbackData:            "0x",
     receiverIfMakerIsSeller: buy ? ethers.ZeroAddress : wallet.address,
@@ -259,6 +270,10 @@ async function main() {
   console.log(JSON.stringify(result.offer, null, 2));
 }
 
-module.exports = { signOffer, MARKET, TYPES };
+module.exports = { signOffer, MARKET, TYPES, hashOffer, CONFIG };
 
-main().catch((e) => { console.error(e); process.exit(1); });
+// Only run the CLI when invoked directly — `require`-ing this module (e.g. from
+// build_offer_book.js) must not trigger a signing run.
+if (require.main === module) {
+  main().catch((e) => { console.error(e); process.exit(1); });
+}
