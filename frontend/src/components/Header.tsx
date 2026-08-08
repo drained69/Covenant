@@ -3,7 +3,7 @@ import { Link, useLocation } from "react-router-dom";
 import { ConnectButton } from "@rainbow-me/rainbowkit";
 import { Brand } from "./Brand";
 import { WalletBalancesMenu } from "./WalletBalances";
-import { IconMarkets, IconPositions, IconShield, IconInfo, IconCoins, IconLayers } from "./icons";
+import { IconMarkets, IconPositions, IconShield, IconDocument, IconCoins, IconLayers } from "./icons";
 
 /*
   Nav is split into two groups rather than one flat row of six.
@@ -13,12 +13,16 @@ import { IconMarkets, IconPositions, IconShield, IconInfo, IconCoins, IconLayers
   compare the curve across maturities. Those three carry the traffic and sit
   left, immediately after the wordmark, in descending frequency.
 
-  Compliance, Faucet, and How it works are visited once or on an exception:
-  Compliance when a transaction fails the gate, Faucet once to fund a testnet
-  wallet, How it works while learning the protocol. Presenting them at equal
-  weight to Markets made the bar read as six peers and cost the primary
-  destinations their prominence. They move to a right-aligned utility cluster
-  next to the wallet — reachable in one click, but no longer competing.
+  Compliance, Faucet, and Docs are visited once or on an exception: Compliance
+  when a transaction fails the gate, Faucet once to fund a testnet wallet, Docs
+  while learning the protocol. Presenting them at equal weight to Markets made
+  the bar read as six peers and cost the primary destinations their prominence.
+  They move to a right-aligned utility cluster next to the wallet — reachable in
+  one click, but no longer competing.
+
+  Docs points at `/docs`, the section index, rather than at a single page. Its
+  `isActive` check is a prefix match, so the tab stays lit on every page inside
+  the section while the docs sidebar handles navigation within it.
 */
 const PRIMARY_NAV = [
   { to: "/markets",   label: "Markets",       Icon: IconMarkets },
@@ -27,9 +31,9 @@ const PRIMARY_NAV = [
 ];
 
 const UTILITY_NAV = [
-  { to: "/compliance",   label: "Compliance",   Icon: IconShield },
-  { to: "/faucet",       label: "Faucet",       Icon: IconCoins },
-  { to: "/how-it-works", label: "How it works", Icon: IconInfo },
+  { to: "/compliance",   label: "Compliance", Icon: IconShield },
+  { to: "/faucet",       label: "Faucet",     Icon: IconCoins },
+  { to: "/docs",         label: "Docs",       Icon: IconDocument },
 ];
 
 export function Header() {

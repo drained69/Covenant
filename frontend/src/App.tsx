@@ -5,8 +5,15 @@ import { MarketDetail } from "./pages/MarketDetail";
 import { Positions } from "./pages/Positions";
 import { Faucet } from "./pages/Faucet";
 import { Compliance } from "./pages/Compliance";
-import { HowItWorks } from "./pages/HowItWorks";
 import { Ladder } from "./pages/Ladder";
+import { DocsLayout } from "./pages/docs/DocsLayout";
+import { Overview } from "./pages/docs/Overview";
+import { HowItWorks } from "./pages/docs/HowItWorks";
+import { Architecture } from "./pages/docs/Architecture";
+import { ComplianceDoc } from "./pages/docs/ComplianceDoc";
+import { CreditLadder } from "./pages/docs/CreditLadder";
+import { CoreMath } from "./pages/docs/CoreMath";
+import { Reference } from "./pages/docs/Reference";
 import { CHAIN, EXPLORER, ADDRESSES } from "./config/chain";
 import { IconExternal } from "./components/icons";
 
@@ -23,7 +30,33 @@ export function App() {
           <Route path="/ladder" element={<Ladder />} />
           <Route path="/faucet" element={<Faucet />} />
           <Route path="/compliance" element={<Compliance />} />
-          <Route path="/how-it-works" element={<HowItWorks />} />
+
+          {/*
+            Docs are a layout route: `DocsLayout` renders the sidebar and the
+            breadcrumb once and swaps these children through its `<Outlet />`.
+            The index route is the overview, which is why it is `index` rather
+            than a `/docs/overview` path — the sidebar's "Overview" entry uses
+            `end` to match it exactly.
+
+            The child paths are relative, but they must stay in sync with the
+            absolute `to` values in `docsNav.ts`, which is what the sidebar and
+            the index cards both render from.
+          */}
+          <Route path="/docs" element={<DocsLayout />}>
+            <Route index element={<Overview />} />
+            <Route path="how-it-works" element={<HowItWorks />} />
+            <Route path="architecture" element={<Architecture />} />
+            <Route path="compliance" element={<ComplianceDoc />} />
+            <Route path="credit-ladder" element={<CreditLadder />} />
+            <Route path="math" element={<CoreMath />} />
+            <Route path="reference" element={<Reference />} />
+          </Route>
+
+          {/* The walkthrough moved into the docs section. The old URL is kept
+              as a redirect rather than deleted: it was in the header, the
+              footer, and any link anyone has already shared. */}
+          <Route path="/how-it-works" element={<Navigate to="/docs/how-it-works" replace />} />
+
           <Route path="*" element={<Navigate to="/markets" replace />} />
         </Routes>
       </main>
@@ -64,7 +97,8 @@ export function App() {
               <FooterLink to="/ladder">Credit ladder</FooterLink>
             </FooterGroup>
             <FooterGroup title="Learn">
-              <FooterLink to="/how-it-works">How it works</FooterLink>
+              <FooterLink to="/docs">Documentation</FooterLink>
+              <FooterLink to="/docs/how-it-works">How it works</FooterLink>
               <FooterLink to="/compliance">Compliance</FooterLink>
               <FooterLink to="/faucet">Testnet faucet</FooterLink>
             </FooterGroup>

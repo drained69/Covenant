@@ -44,6 +44,9 @@ skills-lock.json
 # Video project (Remotion) - large local node_modules and render output
 video/
 
+# Media / marketing assets - local only, not part of the source tree
+Media Kit/
+
 # Logs and backups
 *.log
 *.bak

@@ -1,46 +1,34 @@
 import { Link } from "react-router-dom";
-import { IconCheck, IconX, IconArrowRight, IconShield, IconLayers } from "../components/icons";
-import { LADDER } from "../config/chain";
+import { IconCheck, IconX, IconArrowRight, IconShield, IconLayers } from "../../components/icons";
+import { LADDER } from "../../config/chain";
+import { DocPage, Section, StepCard, LayerCard } from "./_primitives";
 
 /**
- * Plain-language walkthrough of the whole stack. Mirrors Explanation.md but for people who prefer
- * clicking to reading. Fully static, no on-chain reads.
+ * Plain-language walkthrough of the whole stack, for people who prefer clicking to reading.
+ * Fully static, no on-chain reads.
  *
  * Design note: this page previously described itself as following the app's "teal-glow design
  * language," which is the opposite of what the theme actually does — the theme builds depth from
  * elevation (borders + shadow), and reserves brand cyan for interactive affordance. Glow on static
  * panels is the single loudest crypto-dashboard tell, so the accent here is used only to mark the
  * two cards that carry the page's actual argument.
+ *
+ * It now lives inside the docs section rather than standing alone at /how-it-works. The page-level
+ * header and the shell wrapper come from DocsLayout and DocPage; StepCard, LayerCard, and
+ * SectionTitle moved to _primitives.tsx so the sibling pages share them.
  */
 export function HowItWorks() {
   return (
-    <section className="shell py-12 lg:py-16 space-y-16">
-      {/* ── Page header ──────────────────────────────────────────────────
-          Was `space-y-3` with a centred `badge-info` above the h1. Two problems:
-          a badge is a status label, and "Covenant · compliance-native credit" is
-          a tagline, so it was a badge doing a kicker's job; and centring a
-          full-width paragraph under a centred h1 leaves the reader's eye with no
-          fixed left edge to return to on each line. Left-aligned with an
-          uppercase eyebrow reads as a document, which is what this page is. */}
-      <header className="max-w-3xl">
-        <div className="text-micro font-semibold uppercase text-brand-300">
-          Protocol overview
-        </div>
-        <h1 className="mt-3 text-h1 md:text-display text-slate-50">How Covenant works</h1>
-        <p className="mt-4 text-body-lg text-muted">
-          Fixed-rate credit for regulated institutions. The whole system in one page — the offer
-          flow, the compliance gate, the credit ladder that prices a credential into leverage, and
-          the wrapped-A-token layer that closes the flash-loan surface.
-        </p>
-      </header>
-
+    <DocPage
+      eyebrow="Protocol overview"
+      title="How Covenant works"
+      lede="The whole system in one page — the offer flow, the compliance gate, the credit ladder that prices a credential into leverage, and the wrapped-A-token layer that closes the flash-loan surface."
+    >
       {/* ── The offer lifecycle ────────────────────────────────────────── */}
-      <section className="space-y-6">
-        <SectionTitle
-          title="The offer lifecycle"
-          subtitle="Three steps from a signed message to a settled position. Credit units are sold at a discount and redeemed 1:1 at maturity — the discount is the interest."
-        />
-
+      <Section
+        title="The offer lifecycle"
+        subtitle="Three steps from a signed message to a settled position. Credit units are sold at a discount and redeemed 1:1 at maturity — the discount is the interest."
+      >
         {/* The StepIndicator marked step 1 `active: true` and steps 2-3 inactive,
             which reads as "you are on step 1 of a wizard." Nothing on this page
             is interactive and no step is in progress — it's an explanation of a
@@ -83,7 +71,7 @@ export function HowItWorks() {
             emphasized
           />
         </div>
-      </section>
+      </Section>
 
       {/* ── Getting verified ───────────────────────────────────────────────
           Added because the page described the gate's *check* in detail but never
@@ -91,12 +79,10 @@ export function HowItWorks() {
           offer flow and still not know what to do about step 3 denying them.
           The load-bearing fact is that the credential is issued once and reused,
           which is also what the Get verified tab now reflects. */}
-      <section className="space-y-6">
-        <SectionTitle
-          title="Getting verified"
-          subtitle="The gate checks a credential; it does not issue one. An A-Pass is issued once per wallet and then reused on every fill."
-        />
-
+      <Section
+        title="Getting verified"
+        subtitle="The gate checks a credential; it does not issue one. An A-Pass is issued once per wallet and then reused on every fill."
+      >
         <div className="grid md:grid-cols-3 gap-5">
           <StepCard
             n={1}
@@ -148,7 +134,7 @@ export function HowItWorks() {
             </p>
           </div>
         </div>
-      </section>
+      </Section>
 
       {/* ── The credit ladder ──────────────────────────────────────────────
           Added because the gate story stopped at a binary: you pass or you don't.
@@ -157,12 +143,10 @@ export function HowItWorks() {
           a market's leverage and its credential requirement are one object. That
           is the mechanism that turns compliance from a checkpoint into pricing —
           and it is the part of the design a reader is least likely to infer. */}
-      <section className="space-y-6">
-        <SectionTitle
-          title="The credit ladder"
-          subtitle="One gate answers yes or no. A ladder of gates answers on what terms. Better credentials clear a higher bar, and a higher bar carries more leverage."
-        />
-
+      <Section
+        title="The credit ladder"
+        subtitle="One gate answers yes or no. A ladder of gates answers on what terms. Better credentials clear a higher bar, and a higher bar carries more leverage."
+      >
         <div className="card overflow-hidden">
           <div className="card-header">
             <div className="flex items-center gap-2.5">
@@ -234,21 +218,22 @@ export function HowItWorks() {
         <div className="card p-6 flex flex-col sm:flex-row sm:items-center justify-between gap-5">
           <p className="text-body-sm text-muted max-w-xl">
             The ladder page resolves your wallet against every rung in one{" "}
-            <code className="code-inline">eth_call</code> and shows what each would require.
+            <code className="code-inline">eth_call</code> and shows what each would require. The{" "}
+            <Link to="/docs/credit-ladder" className="link">Credit ladder</Link> doc covers the
+            sub-tier model and the current registration state of each rung.
           </p>
           <Link to="/ladder" className="btn-secondary flex-shrink-0">
             View the ladder
             <IconArrowRight className="w-4 h-4" />
           </Link>
         </div>
-      </section>
+      </Section>
 
       {/* ── The four layers ──────────────────────────────────────────────── */}
-      <section className="space-y-6">
-        <SectionTitle
-          title="The four layers"
-          subtitle="Each layer talks to the one below through a narrow, view-only interface."
-        />
+      <Section
+        title="The four layers"
+        subtitle="Each layer talks to the one below through a narrow, view-only interface."
+      >
         <div className="grid md:grid-cols-2 gap-5">
           <LayerCard
             index="01"
@@ -276,15 +261,13 @@ export function HowItWorks() {
             emphasized
           />
         </div>
-      </section>
+      </Section>
 
       {/* ── The flash-loan story ──────────────────────────────────────────── */}
-      <section className="space-y-6">
-        <SectionTitle
-          title="Closing the flash-loan surface"
-          subtitle="The one thing a per-market gate can't close is flashLoan — it lives on the core, not per-market. The fix is to move the check to the token."
-        />
-
+      <Section
+        title="Closing the flash-loan surface"
+        subtitle="The one thing a per-market gate can't close is flashLoan — it lives on the core, not per-market. The fix is to move the check to the token."
+      >
         {/*
           The before/after pair was two `space-y-2` columns inside one card, with
           the verdicts set in `stat-value-down` and `stat-value-up`. Those
@@ -385,7 +368,7 @@ export function HowItWorks() {
             </tbody>
           </table>
         </div>
-      </section>
+      </Section>
 
       {/* ── Close ─────────────────────────────────────────────────────────
           The page previously just stopped after the decorative chart, leaving
@@ -403,7 +386,7 @@ export function HowItWorks() {
           <IconArrowRight className="w-4 h-4" />
         </Link>
       </div>
-    </section>
+    </DocPage>
   );
 }
 
@@ -413,63 +396,3 @@ const COVERAGE = [
   { path: "Receive A-tokens via flashLoan", by: "WrappedAToken" },
   { path: "Rebind a market's gate after creation", by: "market id = keccak" },
 ];
-
-/* ── primitives ─────────────────────────────────────────────────────── */
-
-function StepCard(
-  { n, title, body, hint, emphasized }:
-  { n: number; title: string; body: React.ReactNode; hint: string; emphasized?: boolean }
-) {
-  return (
-    // Was `card-glow` for the third card. Glow says "this is lit"; what's
-    // actually meant is "this is the load-bearing step," which is a border-and-
-    // tint job. Same information, no bloom.
-    <div className={`card p-5 flex flex-col gap-3 ${emphasized ? "border-brand-500/30" : ""}`}>
-      <div className="flex items-center gap-3">
-        {/* All three dots were `step-dot-done`/`step-dot-active` — states from
-            the wizard indicator that no longer exists. These are ordinals, so
-            they're set in mono tabular at a single weight. */}
-        <span
-          className={`flex-shrink-0 w-6 h-6 rounded-md flex items-center justify-center
-                      font-mono text-[10px] font-bold tabular-nums ${
-            emphasized ? "bg-brand-400 text-ink-950" : "bg-white/10 text-slate-300"
-          }`}
-        >
-          {String(n).padStart(2, "0")}
-        </span>
-        <div className="card-title">{title}</div>
-      </div>
-      <div className="text-body-sm text-slate-300 leading-relaxed flex-1">{body}</div>
-      <div className="pt-3 border-t border-line text-micro font-mono text-subtle break-words">
-        {hint}
-      </div>
-    </div>
-  );
-}
-
-function LayerCard(
-  { index, title, path, body, emphasized }:
-  { index: string; title: string; path: string; body: string; emphasized?: boolean }
-) {
-  return (
-    <div className={`card p-5 space-y-3 ${emphasized ? "border-brand-500/30" : ""}`}>
-      <div className="flex items-baseline justify-between gap-4">
-        <div className="flex items-baseline gap-3 min-w-0">
-          <span className="text-micro font-mono tabular-nums text-subtle">{index}</span>
-          <div className="card-title truncate">{title}</div>
-        </div>
-        <span className="text-micro font-mono text-subtle flex-shrink-0">{path}</span>
-      </div>
-      <p className="text-body-sm text-slate-300 leading-relaxed">{body}</p>
-    </div>
-  );
-}
-
-function SectionTitle({ title, subtitle }: { title: string; subtitle: string }) {
-  return (
-    <div className="max-w-2xl space-y-1.5">
-      <h2 className="text-h3 text-slate-50">{title}</h2>
-      <p className="text-body-sm text-muted leading-relaxed">{subtitle}</p>
-    </div>
-  );
-}

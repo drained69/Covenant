@@ -85,7 +85,7 @@ export function Hero() {
             <Link to="/markets" className="btn-primary">
               Browse markets
             </Link>
-            <Link to="/how-it-works" className="btn-ghost group">
+            <Link to="/docs/how-it-works" className="btn-ghost group">
               How it works
               <IconArrowRight className="w-4 h-4 transition-transform duration-200 group-hover:translate-x-0.5" />
             </Link>

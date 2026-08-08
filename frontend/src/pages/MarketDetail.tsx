@@ -116,10 +116,36 @@ export function MarketDetail() {
   );
 }
 
-function AddrRow({ label, addr, isMarket }: { label: string; addr: string; isMarket?: boolean }) {
+/*
+  `addr` is optional because the two gate rows read from the market struct, which
+  arrives asynchronously and may legitimately be unset — a market can leave either
+  gate slot empty. Rendering an anchor around `undefined` produced a link to
+  `{EXPLORER}/address/undefined`, so the three states are now distinct: loading,
+  absent, and present.
+*/
+function AddrRow({
+  label, addr, isMarket, loading,
+}: {
+  label: string;
+  addr?: string;
+  isMarket?: boolean;
+  loading?: boolean;
+}) {
   const href = isMarket
     ? `${EXPLORER}/address/${ADDRESSES.covenant}#readContract`
     : `${EXPLORER}/address/${addr}`;
+
+  if (loading || !addr) {
+    return (
+      <div className="flex flex-col gap-1 min-w-0">
+        <span className="stat-label">{label}</span>
+        <span className="text-body-sm font-mono text-subtle">
+          {loading ? "Loading…" : "Not set"}
+        </span>
+      </div>
+    );
+  }
+
   return (
     <div className="flex flex-col gap-1 min-w-0">
       <span className="stat-label">{label}</span>
