@@ -18,6 +18,7 @@ Live on **Monad Testnet** (chain id `10143`) against Cleanverse's CVI Compliance
 | [Function coverage](#function-coverage) | Exactly which calls are gated, and which are deliberately not |
 | [Core formulas](#core-formulas) | Market identity, oracle scaling, health, liquidation, fees |
 | [The credit ladder](#the-credit-ladder) | How a credential is priced into leverage |
+| [Roadmap](#roadmap) | What is unbuilt: which Cleanverse call each item consumes and where its verdict lands on-chain |
 | [Deployment](#deployment) | Live addresses, integration status, repository layout |
 | [Getting started](#getting-started) | Build, test, run the frontend, run the off-chain services |
 | [Design choices](#design-choices) | Fifteen decisions, each with its trade-off stated |
@@ -391,6 +392,73 @@ That spread is the point. The institutional rung needs **2.4× less** collateral
 `CreditLadderLens` (`src/periphery/CreditLadderLens.sol`) resolves a wallet against every rung in a single `eth_call`, re-deriving each rung's gate, LLTV, and oracle from its market id via `ICovenant.toMarket`. The frontend's `/ladder` route renders that response directly.
 
 Deploy with `script/DeployLadder.s.sol` followed by `script/DeployLadderLens.s.sol`.
+
+## Roadmap
+
+Everything below is unbuilt. Today the gate answers one question — **is this wallet's holder eligible?** Each item below extends that answer, and is stated as: the Cleanverse call it consumes, the on-chain write that carries the verdict, and what observably changes for a market.
+
+Covenant consumes one corner of Cleanverse: `/api/cooperate`, which issues A-Pass credentials and evaluates compliance pools. The wider gateway also exposes document and liveness verification, sanctions and jurisdiction datasets, wallet risk scoring, and KYB/LEI lookup. `CovenantRegistry`'s docstring already names those as the reason it exists.
+
+| # | Cleanverse call | Carried on-chain by | Market-visible effect |
+|---|---|---|---|
+| 1 | `document/recognize`, `document/liveness-check` | nothing — runs before `generate_apass` | the country tag driving every pool rule stops being self-declared |
+| 2 | `datasource/{ofacSDN,unConsolidated,fatfRiskJurisdiction,baselAMLRanking}` | `validator/set_rule` — Cleanverse's own on-chain write | Path A markets re-price jurisdiction with no Covenant deployment |
+| 3 | `address/register_address`, `address/retrieve_address_risk` | `CovenantRegistry.revoke(account, reason)` | tainted provenance denies further exposure increases |
+| 4 | `business/companies`, `/detail`, `/lei`, `/people` | `CovenantRegistry.attest(...)` committing to an LEI | the institutional rung gets an entity credential, not a personal one |
+| 5 | credential-state push (existence unconfirmed) | `CovenantRegistry.revoke` | shortens Path B revocation latency; Path A already immediate |
+| 6 | none | new engine function | an open position can change hands, gated at transfer |
+
+**One prerequisite gates items 1–4.** Everything the client speaks to today is relative to `/api/cooperate`. All four items live on the *bare* gateway (`/api/address`, `/api/datasource`, `/api/business`, `/api/document`) — a different base path, and the cached OpenAPI spec (`offchain/spec/cleanverse-openapi-v3.json`, 148 paths) contains no `/api/cooperate` route at all, so the two surfaces are documented separately and may authenticate separately. Before any of this is scheduled, confirm with Cleanverse that the same `api-id` authorises the wider gateway; the spec declares `security: None` and an empty `securitySchemes`, so it cannot be read off the document. Three further consequences for `offchain/cleanverse_client.py`: it needs dual-base support, these endpoints take **query-string** parameters rather than the encrypted JSON bodies `/api/cooperate` uses, and every response is typed as a bare `object`, so shapes must be pinned against UAT rather than generated. Treat the spec as advisory — one parameter name in it is visibly corrupted by a paste.
+
+### 1. Document and liveness verification at issuance
+
+- **Integration.** `POST /api/document/recognize` (`docType`, `frontImagePath`, `backImagePath`) parses an identity document; `POST /api/document/liveness-check` (`video_path`, `image_path`) binds it to a live person. Both run inside `_handle_generate_apass` *before* `generate_apass`, and their output supplies `fullName`, `idType`, and `issuingCountryISO2` instead of the request body.
+- **Gap it closes.** Those three fields are free text today. `frontend/src/pages/Compliance.tsx` collects them from text inputs and validates only that the name is two characters and the country matches `/^[A-Z]{2}$/`; `offchain/server.py` forwards them verbatim into `identityDataList`. The country tag that every pool country rule is evaluated against is whatever the user typed.
+- **On-chain footprint.** None. No contract changes, no gate changes, no new market ids — the trust boundary moves inside the issuance handler.
+- **Why first.** Item 2's jurisdiction rules are worth little while the jurisdiction is self-asserted, and this is the smallest diff on the list. Unresolved mechanic: both routes take a *path*, and the spec has no upload route, so where images are stored is the one question to settle with Cleanverse before starting.
+
+### 2. Sanctions and jurisdiction datasets as generated pool rules
+
+- **Integration.** A scheduled job reads `GET /api/datasource/ofacSDN` and `/unConsolidated` (no parameters) plus `/fatfRiskJurisdiction` and `/baselAMLRanking` (both take a `cache` flag, which is what makes them cheap to poll), diffs them against the pool's current rule list from `validator/rules`, and writes the difference back through `POST /validator/set_rule`. The `countries` and `is_black_list` fields of the rule built by `CleanverseClient.build_rule` are the only ones this touches.
+- **Gap it closes.** Pool country lists are hand-maintained. FATF revises its grey and black lists at each plenary — roughly three times a year — and a hand-maintained list is wrong for as long as it takes someone to notice.
+- **On-chain footprint.** Nothing Covenant deploys. `set_rule` is one of the mutating Cooperate endpoints that writes on-chain — the client's own error table carries `12026 ONCHAIN_WRITE_FAILED` — so a regenerated rule is visible to every Path A market at the next block, since `CleanversePoolGate` reads `complianceVerify` live inside the transaction. Path B markets are unaffected; their jurisdiction lives in `Identity.jurisdiction` and moves via `attest`.
+- **Second use for the same feed.** A higher-risk jurisdiction does not have to mean denial. Each ladder rung is a separate market bound to a separate gate and therefore a separate pool with its own `countries` list, so Basel's ranking can drop a jurisdiction out of the institutional rung's list while leaving it in the retail rung's — three `set_rule` writes expressing "less leverage", rather than one global block list expressing "no". Pricing risk instead of refusing it is what the 2.4× rung spread exists to do.
+
+### 3. Wallet risk scoring — provenance as a gate input
+
+- **Integration.** An attester registers each cleared wallet with `POST /api/address/register_address` (`address` as a query parameter) and polls `POST /api/address/retrieve_address_risk`. A score crossing the institution's threshold invokes `CovenantRegistry.revoke(account, reason)`, already `onlyAttester`, already terminal, already emitting the reason — the write fits an existing hook.
+- **Gap it closes.** `complianceVerify` answers *who holds this wallet*, not *where its funds came from*. A wallet with a live A-Pass funded from a mixer passes the pool check today, and tainted provenance is a reportable event for an institution regardless of how well-identified the counterparty is.
+- **On-chain footprint.** One new `revoke` call per flagged account — no engine changes, no new market ids, no re-deployment. The one design note is that `revoke` is terminal per credential id, so a score that recovers re-enters through `attest` with a fresh credential.
+- **Why it is a registry item, not a Cleanverse-side one.** Verdicts here are institutional policy — which score is too high is the bank's call, not the vendor's — so the write lands in `CovenantRegistry` via an attester, not in a pool rule via `set_rule`.
+
+### 4. Entity identity — KYB, LEI, and the institutional rung
+
+- **Integration.** A second issuance flow for legal persons: `POST /api/business/companies` (with `isoCode`, `companyRegistrationNumber`, `companyName`) resolves a registered entity, `/companies/detail` (`companyId`) returns it, `/companies/lei` (`bic`/`lei`/`isin`) attaches its Legal Entity Identifier, and `/companies/people` (`uen`, `personName`, `role`) screens beneficial owners. The resulting `CovenantRegistry.attest` commits to the LEI rather than to a natural-person document.
+- **Gap it closes.** The largest gap between what the README claims and what the code does. A-Pass as issued today is a natural-person credential — `generate_apass` builds `identityDataList` from `idType`, `fullName`, and `issuingCountryISO2`, and there is no entity path. But the institutional rung is *"bank-verified entity holding a full-tier CVI credential"* and the target user is a bank or an RWA issuer — entities, which cannot hold a passport.
+- **On-chain footprint.** `attest` only — one call per entity, `Identity.credentialId` as the LEI commitment, `jurisdiction` as the entity's home country. No new gate logic; the rung already keys on `min_sub_tier`, and this item is about *which credential* the entity holds, not how it is scored.
+- **The item's one open question.** Whether the entity attestation reuses `credentialId` (smaller change, honest as a commitment to an off-chain record of unspecified shape) or `Identity` grows an entity discriminator. Leaning toward the former.
+
+### 5. Push-driven credential state — closing Path B's revocation window
+
+- **The latency is Path B's only.** A Cleanverse-side freeze via `POST /update_status` is an on-chain write, and `CleanversePoolGate` calls `complianceVerify` inside the transaction, so a frozen A-Pass denies on Path A markets at the next block with no Covenant action at all. On Path B, a registry attestation stays live until an attester polls `query_apass` and calls `revoke` — the exposure window is exactly the poll interval, and it applies only to registry-gated markets and to risk scores (item 3), which the pool cannot hold.
+- **Integration, if a channel exists.** Unconfirmed, and the lowest-confidence item here. The spec's `/notification/*` routes are inbound receivers for Cleanverse's own upstream providers (`sumsub_webhook`, `transak_webhook`, `alchemypay_*`), not a partner-facing subscription. Worth one question to Cleanverse.
+- **Fallback that needs no answer.** Tighten the `query_apass` and `retrieve_address_risk` poll interval, and prefer a `CleanversePoolGate` market wherever the institution's policy is expressible as a pool rule — the immediacy is a property of Path A, not something to be engineered into Path B.
+
+### 6. Secondary transfer of positions
+
+- **Integration.** None — this is the one item that needs no new Cleanverse surface. Transfer re-runs the market's existing `entryGate` against the recipient: `canIncreaseCredit` for a lender position, `canIncreaseDebt` for a borrower position, through whichever gate the market id already hashes.
+- **Gap it closes.** Design choice 1 accepts "no secondary market" as the cost of fixed-maturity credit. That is right for a first version and wrong in the long run: institutions expect to exit a term position, and a market whose only exits are maturity and liquidation prices that illiquidity into the rate.
+- **Why it is the strongest demonstration of the thesis.** The moment a position moves, an off-chain KYC check that cleared the original holder is describing the wrong person — there is no point in the flow where a database gate could re-run. A gate hook read inside the transfer is not a cleaner implementation of the same idea; it is the only implementation.
+- **Why it is last.** It is the only item that changes the credit engine rather than the compliance layer, and it touches market identity: because the gate address is hashed into the market id, the governing policy must follow the position's market, not the holder's history. Repayment and withdrawal stay ungated after transfer, per design choice 4 — a recipient who later loses their credential must still be able to settle.
+
+### Deliberately out of scope
+
+Cleanverse also exposes fiat on/off ramps, bank-account verification, card and QR payment rails, and custody and trading via Amber. These are adjacent to the product but not to the thesis. Two carve-outs:
+
+- **`bankAccount/identity_match`** — matches a bank-account holder against KYC identity (`accessToken`, `emailAddress`, `legalName`, `phoneNumber`). It is a fiat-side Travel Rule input, so it is the one ramp-adjacent endpoint that could earn its way in alongside item 4.
+- **Amber's `swap/price` and `swap/orders`** — could route liquidation proceeds. Useful for the collateral side, but it puts a centralised venue inside the liquidation path, and that is an architectural concession rather than an integration detail. Stated here so the trade-off is visible instead of absorbed quietly.
+
+Building a matching engine, an identity schema, or a licensed entity remains out of scope for the reasons given in [Design choices](#design-choices) and [Positioning](#positioning).
 
 ## Deployment
 
