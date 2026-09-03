@@ -197,21 +197,7 @@ export function TelegramConnect() {
   }
 
   if (!openedInsideTelegram) {
-    return (
-      <main className="min-h-screen bg-ink-950 text-slate-100 px-4 py-8">
-        <div className="mx-auto w-full max-w-md">
-          <div className="flex items-center gap-2 text-brand-300 text-micro font-semibold uppercase">
-            <IconWallet className="w-4 h-4" />
-            Covenant wallet connection
-          </div>
-          <h1 className="mt-4 text-h2 text-white text-balance">Open this page from Telegram.</h1>
-          <p className="mt-3 text-body text-slate-300 leading-relaxed">
-            Wallet linking is tied to your Telegram account. Open the Covenant bot in Telegram and tap
-            <b> Connect wallet</b> to start.
-          </p>
-        </div>
-      </main>
-    );
+    return <TelegramConnectFallback />;
   }
 
   return (
@@ -319,6 +305,103 @@ export function TelegramConnect() {
               </button>
             </>
           )}
+        </div>
+
+        <p className="mt-5 text-micro text-subtle leading-relaxed">
+          Never paste a seed phrase or private key into Telegram, this page, or any support chat.
+        </p>
+      </div>
+    </main>
+  );
+}
+
+/**
+ * What a browser sees when the Mini App URL is opened outside Telegram: no
+ * Telegram session means no wallet link can start here. The page's whole job
+ * is to send the user into the bot with as few steps as possible — the bot
+ * link comes from the API (resolved from the bot token at startup).
+ */
+function TelegramConnectFallback() {
+  const [botUrl, setBotUrl] = useState<string | null>(null);
+  const [loaded, setLoaded] = useState(false);
+
+  useEffect(() => {
+    let active = true;
+    void (async () => {
+      try {
+        const info = await fetch(`${TELEGRAM_API_URL}/api/connect/info`).then(async (response) => {
+          const payload = (await response.json()) as { ok: boolean; botUrl?: string | null };
+          if (!response.ok || !payload.ok) throw new Error("unavailable");
+          return payload;
+        });
+        if (active) setBotUrl(info.botUrl ?? null);
+      } catch {
+        // The steps below still guide the user to the bot by name.
+      } finally {
+        if (active) setLoaded(true);
+      }
+    })();
+    return () => {
+      active = false;
+    };
+  }, []);
+
+  return (
+    <main className="min-h-screen bg-ink-950 text-slate-100 px-4 py-8">
+      <div className="mx-auto w-full max-w-md">
+        <div className="flex items-center gap-2 text-brand-300 text-micro font-semibold uppercase">
+          <IconWallet className="w-4 h-4" />
+          Covenant wallet connection
+        </div>
+        <h1 className="mt-4 text-h2 text-white text-balance">Open this page from Telegram.</h1>
+        <p className="mt-3 text-body text-slate-300 leading-relaxed">
+          Wallet linking is tied to your Telegram account, so it starts inside the Covenant bot — not in a
+          regular browser tab.
+        </p>
+
+        <div className="mt-8 card p-5 space-y-4">
+          <div className="flex items-start gap-3">
+            <span className="empty-state-icon w-8 h-8 shrink-0"><span className="text-brand-300">1</span></span>
+            <div>
+              <div className="text-body-sm font-semibold text-white">Open the Covenant bot in Telegram</div>
+              <p className="mt-1 text-body-sm text-subtle">
+                Search for <b>@Covenant_DreamDEXbot</b> in Telegram, or use the button below.
+              </p>
+            </div>
+          </div>
+          <div className="flex items-start gap-3">
+            <span className="empty-state-icon w-8 h-8 shrink-0"><span className="text-brand-300">2</span></span>
+            <div>
+              <div className="text-body-sm font-semibold text-white">Tap Connect wallet</div>
+              <p className="mt-1 text-body-sm text-subtle">
+                It is the blue button on the bot's keyboard, the menu button (☰, left of the message
+                box), and in the bot's start menu. Send <code className="code-inline">/start</code> if
+                you see no buttons.
+              </p>
+            </div>
+          </div>
+          <div className="flex items-start gap-3">
+            <span className="empty-state-icon w-8 h-8 shrink-0"><span className="text-brand-300">3</span></span>
+            <div>
+              <div className="text-body-sm font-semibold text-white">Follow the code and QR</div>
+              <p className="mt-1 text-body-sm text-subtle">
+                Covenant opens inside Telegram and shows a one-time code. Open the verification page in
+                your wallet's browser, or scan the QR with another device, and sign once.
+              </p>
+            </div>
+          </div>
+
+          {loaded && botUrl && (
+            <a
+              className="btn-primary w-full"
+              href={botUrl}
+              target="_blank"
+              rel="noreferrer"
+            >
+              <IconExternal className="w-4 h-4" /> Open the Covenant bot in Telegram
+            </a>
+          )}
+          {!loaded && <div className="h-10" aria-hidden="true" />}
         </div>
 
         <p className="mt-5 text-micro text-subtle leading-relaxed">

@@ -44,6 +44,7 @@ test("the connect API links a wallet to a Telegram account end to end", async ()
   const server = createConnectApi(store, {
     health: () => ({ network: "testnet" }),
     onVerified: (userId, address) => notified.push({ userId, address }),
+    botUrl: "https://t.me/Covenant_DreamDEXbot",
   });
   await new Promise<void>((resolve) => server.listen(0, resolve));
   const base = `http://127.0.0.1:${(server.address() as { port: number }).port}`;
@@ -54,6 +55,11 @@ test("the connect API links a wallet to a Telegram account end to end", async ()
     const health = await fetch(`${base}/health`).then((r) => r.json() as Promise<Json>);
     assert.equal(health.ok, true);
     assert.equal(health.network, "testnet");
+
+    // Bot link for the out-of-Telegram fallback page.
+    const info = await fetch(`${base}/api/connect/info`).then((r) => r.json() as Promise<Json>);
+    assert.equal(info.ok, true);
+    assert.equal(info.botUrl, "https://t.me/Covenant_DreamDEXbot");
 
     // Not verified yet.
     const before = await post(base, "/api/connect/session", { initData });
