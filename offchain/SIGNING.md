@@ -60,7 +60,7 @@ The script prints:
 
 Open `offchain/sign_offer.js` and update `CONFIG`:
 
-- `chainId` — 10143 for Monad testnet
+- `chainId` — the target network's chain ID (50312 for Somnia testnet)
 - `ecrecoverRatifier` — the deployed periphery notary address (needs to be deployed if not already)
 - `lenderPrivateKey` — passed via env, not hardcoded
 

@@ -18,7 +18,7 @@ import {BtcUsdOracle} from "../src/oracles/BtcUsdOracle.sol";
 ///   ORACLE_INITIAL_PRICE_USD   — initial BTC/USD to seed  (default: 100000, $100k/BTC)
 ///
 /// Run:
-///   forge script script/DeployBtcUsdOracle.s.sol --rpc-url monad --broadcast --legacy
+///   forge script script/DeployBtcUsdOracle.s.sol --rpc-url somnia --broadcast
 contract DeployBtcUsdOracle is Script {
     function run() external {
         uint256 pk = vm.envUint("PRIVATE_KEY");

@@ -10,9 +10,10 @@
   to go on. The sidebar shows `label` alone; a one-line description under every
   sidebar item turns a scannable nav into a wall of prose.
 
-  Order is reading order, not alphabetical. "How it works" comes first because it
-  is the page a newcomer wants; Reference comes last because it is the page you
-  return to. The three in between go concept → policy → math.
+  Order is reading order, not alphabetical. The task-oriented guide comes first
+  for users who want to operate the product; "How it works" follows for readers
+  who want the mechanism. Reference comes last because it is the page you return
+  to. The entries in between move from concept to policy to math.
 */
 export type DocsNavItem = {
   to: string;
@@ -30,10 +31,16 @@ export const REPO_URL = "https://github.com/drained69/covenant";
 
 export const DOCS_NAV: DocsNavItem[] = [
   {
+    to: "/docs/how-to",
+    label: "How to use Covenant",
+    blurb:
+      "A practical walkthrough: fund a wallet, check your tier, unlock capital, place an Event Contract order, manage the position, and exit safely.",
+  },
+  {
     to: "/docs/how-it-works",
     label: "How it works",
     blurb:
-      "The offer lifecycle end to end — signing off-chain, filling on-chain, and the compliance check that fires inside the fill.",
+      "The offer lifecycle end to end — signing off-chain, filling on-chain, and tracking a position into settlement.",
   },
   {
     to: "/docs/architecture",
@@ -42,16 +49,10 @@ export const DOCS_NAV: DocsNavItem[] = [
       "The four layers, how a market's identity is derived from its terms, and why swapping a gate produces a different market.",
   },
   {
-    to: "/docs/compliance",
-    label: "Compliance",
-    blurb:
-      "The gate model, the two integration paths, which functions are gated and which are deliberately not, and the wrapped A-token.",
-  },
-  {
     to: "/docs/credit-ladder",
-    label: "Credit ladder",
+    label: "Credit tiers",
     blurb:
-      "Three rungs binding a CVI sub-tier to an LLTV, cryptographically. Plus the current testnet registration state.",
+      "Three reputation tiers binding an Ethos score threshold to transparent collateralized trading terms.",
   },
   {
     to: "/docs/math",

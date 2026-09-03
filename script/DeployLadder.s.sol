@@ -37,7 +37,7 @@ import {LLTV_0, LLTV_2, LLTV_4, LIQUIDATION_CURSOR_LOW, maxLif} from "../src/lib
 /// Usage:
 ///   forge script script/DeployLadder.s.sol --rpc-url $RPC_URL --broadcast --legacy
 ///
-/// **Rules are NOT set on-chain.** The CCP V2 validator deployed on Monad testnet
+/// **Rules are NOT set on-chain.** The CCP V2 validator deployed on the target testnet
 /// (proxy `0xaC7e5179…` → impl `0x68Ce853D…`) exposes only the compliance *read* surface
 /// (`isRegistered`, `complianceVerify`, `getRulesV2`). The `setRuleV2FromContract` /
 /// `addRuleV2FromContract` selectors that `CleanversePoolGate.setRule` / `addRule` forward to are

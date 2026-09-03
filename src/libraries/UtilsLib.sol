@@ -51,9 +51,42 @@ library UtilsLib {
     }
 
     /// @dev Assumes bitmap is not zero.
+    /// @dev Cancun-compatible msb: `clz` is an Osaka-only instruction, which
+    ///      target chains may not implement — find the top bit by shifting
+    ///      instead. Five nested halvings on a 128-bit input, constant-time.
     function msb(uint128 bitmap) internal pure returns (uint256 res) {
         assembly {
-            res := sub(255, clz(bitmap))
+            res := 0
+            let v := bitmap
+            // Halve from 128 bits down to 1, adding the width each time the top
+            // half is non-zero. 7 iterations: 128, 64, 32, 16, 8, 4, 2.
+            if iszero(iszero(and(shr(64, v), 0xFFFFFFFFFFFFFFFF))) {
+                v := shr(64, v)
+                res := add(res, 64)
+            }
+            if iszero(iszero(and(shr(32, v), 0xFFFFFFFF))) {
+                v := shr(32, v)
+                res := add(res, 32)
+            }
+            if iszero(iszero(and(shr(16, v), 0xFFFF))) {
+                v := shr(16, v)
+                res := add(res, 16)
+            }
+            if iszero(iszero(and(shr(8, v), 0xFF))) {
+                v := shr(8, v)
+                res := add(res, 8)
+            }
+            if iszero(iszero(and(shr(4, v), 0xF))) {
+                v := shr(4, v)
+                res := add(res, 4)
+            }
+            if iszero(iszero(and(shr(2, v), 0x3))) {
+                v := shr(2, v)
+                res := add(res, 2)
+            }
+            if iszero(iszero(shr(1, v))) {
+                res := add(res, 1)
+            }
         }
     }
 

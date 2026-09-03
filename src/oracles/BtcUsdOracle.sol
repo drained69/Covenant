@@ -46,7 +46,7 @@ contract BtcUsdOracle is IOracle {
     error PriceUnset();
 
     /// @param initialOwner Address permitted to push prices. A multisig in production.
-    /// @param collateralDecimals Decimals of the collateral token this oracle prices (BTC on Ethereum is 8; WBTC on Monad = ?).
+    /// @param collateralDecimals Decimals of the collateral token this oracle prices (BTC and WBTC commonly use 8).
     /// @param loanDecimals Decimals of the loan token this oracle prices against (USDC = 6, DAI = 18).
     /// @param feedDecimals Decimals of the raw price you will push (Chainlink convention = 8).
     /// @param stalenessSeconds Max age before `price()` reverts. 0 disables the check.

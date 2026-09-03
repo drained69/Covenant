@@ -1,13 +1,34 @@
 <!doctype html>
-<html lang="en" class="dark">
+<html lang="en">
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>Covenant — Institutional On-Chain Credit</title>
-    <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Crect x='2' y='2' width='96' height='96' rx='10' fill='%2304060c'/%3E%3Cpath d='M70,61.74 A26,26 0 1 1 70,38.26' stroke='%2322d3c2' stroke-width='11' fill='none'/%3E%3Crect x='57' y='43.26' width='13' height='13.48' rx='1.5' fill='%2322d3c2'/%3E%3C/svg%3E" />
+    <meta
+      name="description"
+      content="Covenant — reputation-aware trading capital for DreamDEX Event Contracts on Somnia. Use Ethos credibility to unlock collateralized trading capacity."
+    />
+    <meta name="theme-color" content="#f4f0e5" />
+    <script src="https://telegram.org/js/telegram-web-app.js"></script>
+    <title>Covenant — Trade Prediction Markets With Conviction</title>
+    <!-- Inter is requested as a VARIABLE range (400..800), not static stops.
+         The type scale uses intermediate weights (display/h1 are 650), and a
+         static request makes CSS font matching snap 650 to 700 — the tighter
+         half-weight the scale was designed around never rendered. Weight 300
+         is dropped: nothing below 400 is used anywhere. -->
+    <!-- Favicon mirrors the header mark exactly: ink-950 ground, slate-100 arc,
+         brand-400 cap. The previous data URI used #22d3c2 / #04060c — the same
+         off-palette cyan Brand.tsx documents as a drift bug, on a ground that
+         matched no ink step. -->
+    <!-- Favicon mirrors the header mark exactly: ink-950 ground, slate-100 arc,
+         brand-400 cap. The arc and cap hexes are the theme values so the two
+         marks can never drift apart. -->
+    <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Crect x='2' y='2' width='96' height='96' rx='10' fill='%23f4f0e5'/%3E%3Cpath d='M70,61.74 A26,26 0 1 1 70,38.26' stroke='%23161911' stroke-width='11' fill='none'/%3E%3Crect x='57' y='43.26' width='13' height='13.48' rx='1.5' fill='%23405138'/%3E%3C/svg%3E" />
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet" />
+    <!-- Instrument Serif is loaded italic-only: the family exists in the stack
+         solely for the editorial pull-phrase idiom (the second hero line,
+         "Unlock capacity."), never for running text. -->
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400..800&family=Instrument+Serif:ital@1&family=JetBrains+Mono:wght@400..600&display=swap" rel="stylesheet" />
   </head>
   <body>
     <div id="root"></div>

@@ -1,5 +1,8 @@
-# Build stage: Vite inlines VITE_API_URL at compile time, so it must be present
-# here as a build arg rather than only in the runtime environment.
+# Build stage: Vite inlines VITE_* vars at compile time, so they must be
+# present here as build args rather than only in the runtime environment.
+# NOTE: Railway injects service variables into Docker builds ONLY through
+# declared ARGs — an undeclared variable silently compiles to its fallback
+# (this is exactly how the credit-service URL shipped as localhost:3001).
 FROM node:20-slim AS build
 
 WORKDIR /app
@@ -11,6 +14,10 @@ COPY . .
 
 ARG VITE_API_URL
 ENV VITE_API_URL=$VITE_API_URL
+ARG VITE_CREDIT_SERVICE_URL
+ENV VITE_CREDIT_SERVICE_URL=$VITE_CREDIT_SERVICE_URL
+ARG VITE_TELEGRAM_API_URL
+ENV VITE_TELEGRAM_API_URL=$VITE_TELEGRAM_API_URL
 RUN npm run build
 
 # Runtime stage: nginx serves the static bundle.

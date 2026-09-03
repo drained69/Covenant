@@ -82,7 +82,7 @@ function offlineChecks(entry, seenGroups) {
   // The signature is over OfferTree(Offer offerTree), not over the Offer.
   const { TYPES } = require("./sign_offer");
   const recovered = ethers.verifyTypedData(
-    { chainId: 10143, verifyingContract: o.notary },
+    { chainId: Number(process.env.CHAIN_ID || 50312), verifyingContract: o.notary },
     { CollateralParams: TYPES.CollateralParams, Market: TYPES.Market, Offer: TYPES.Offer, OfferTree: TYPES.OfferTree },
     { offerTree: o },
     ethers.Signature.from({ v: Number(sig.v), r: sig.r, s: sig.s }),

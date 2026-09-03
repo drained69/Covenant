@@ -6,23 +6,44 @@
 #
 # (This is what happened to .claude/launch.json.)
 
-# Foundry
-cache/
-out/
-broadcast/
-lcov.info
-
-# Secrets - never commit
+# ── Secrets - never commit ──────────────────────────────────────────────
+# Real key material, any environment, any backup of it. Only the redacted
+# .env.example is allowed through (negated last so earlier rules can't win).
 .env
-.env.local
-.env.sepolia.bak
 .env.*
 !.env.example
 *.pem
 *.key
 keystore/
+*.keystore
+# Private-key exports and signatures generated while testing signers
+offchain/*.sig
 
-# Python
+# ── Foundry ─────────────────────────────────────────────────────────────
+cache/
+out/
+broadcast/
+lcov.info
+coverage.json
+# Local deployment records beyond the committed templates.
+# are runtime logs from deploy scripts, not source)
+deployments/*.log
+
+# ── Node ────────────────────────────────────────────────────────────────
+node_modules/
+dist/
+build/
+.next/
+.vite/
+coverage/
+*.tsbuildinfo
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+.eslintcache
+
+# ── Python ──────────────────────────────────────────────────────────────
 __pycache__/
 *.pyc
 *.pyo
@@ -31,42 +52,39 @@ __pycache__/
 venv/
 env/
 
-# Node
-node_modules/
-dist/
-build/
-.next/
-coverage/
-*.tsbuildinfo
-.vite/
-npm-debug.log*
-yarn-error.log*
+# ── Rust (foundry toolchain sometimes builds locally) ───────────────────
+target/
 
-# IDE / OS
+# ── IDE / OS ────────────────────────────────────────────────────────────
 .vscode/
 .idea/
 .DS_Store
 Thumbs.db
-.claude/
-.cursor/
 *.swp
 
-# Agent tooling
+# ── Agent tooling ───────────────────────────────────────────────────────
+.claude/
+.cursor/
 .agents/
 .plamen/
 skills-lock.json
 
-# Temporary / Scratchpad folders
+# ── Scratch / logs / temp ───────────────────────────────────────────────
 .scratchpad/
-
-# Video project (Remotion) - large local node_modules and render output
-video/
-
-# Media / marketing assets - local only, not part of the source tree
-Media Kit/
-
-# Logs and backups
 *.log
 *.bak
 *.tmp
-deployments/*.log
+*.orig
+
+# ── Video project (Remotion) - large local node_modules and render output
+video/
+
+# ── Media / marketing assets - local only, not part of the source tree ──
+Media Kit/
+
+# ── Local notes / drafts - personal, not project source ─────────────────
+Post.md
+Note.md
+
+# Telegram bot runtime state (public wallet links, persisted via Railway volume)
+telegram-bot/data/

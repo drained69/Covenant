@@ -20,7 +20,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 from cleanverse_client import CleanverseClient, CleanverseError  # noqa: E402
 
-CHAIN = os.environ.get("CLEANVERSE_CHAIN", "monad")
+CHAIN = os.environ.get("CLEANVERSE_CHAIN", "somnia")
 
 
 class Handler(BaseHTTPRequestHandler):

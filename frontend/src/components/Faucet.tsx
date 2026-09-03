@@ -1,55 +1,24 @@
 import { useState } from "react";
-import { useAccount } from "wagmi";
+import { useAccount, useBalance, useReadContract, useSwitchChain, useWriteContract } from "wagmi";
+import toast from "react-hot-toast";
 import { parseUnits } from "viem";
-import { ADDRESSES, EXPLORER } from "../config/chain";
+import { useDreamDexQuoteBalance, useDreamDexTrader } from "../hooks/useDreamDex";
+import { CREDIT, CREDIT_DEPLOYED } from "../config/credit";
 import { ERC20_ABI } from "../config/abis";
-import { useTokenBalance } from "../hooks/useTokenBalance";
-import { useTx } from "../hooks/useTx";
+import { CHAIN, EXPLORER, QUOTE_TOKEN, SOMNIA_FAUCET_URL } from "../config/chain";
+import { describeError } from "../lib/errors";
 import { fmtUnits, shortAddr } from "../lib/format";
 import { IconExternal, IconWallet, TokenMark } from "./icons";
 
 /**
- * The two demo ERC20s behind every market on this deployment. Both were deployed
- * by `script/DeployTestTokens.s.sol`, whose `MockERC20.mint` carries no access
- * control — which is what makes a user-facing faucet possible at all.
+ * Somnia testnet funding panel.
+ *
+ * Three things a wallet needs for the full Covenant flow:
+ *  - TestUSDC — the DreamDEX venue collateral every order escrows (SDK faucet)
+ *  - tBTC — Covenant's loan collateral, mintable once the credit layer deploys
+ *  - STT — gas. The public faucet is Discord-gated, so it is linked, not called.
  */
-type FaucetToken = {
-  address: `0x${string}`;
-  symbol: string;
-  name: string;
-  decimals: number;
-  /** Quick-pick amounts, in human units. First entry is the default. */
-  presets: string[];
-  tone: "brand" | "warn";
-  role: string;
-};
-
-const TOKENS: FaucetToken[] = [
-  {
-    address: ADDRESSES.usdc as `0x${string}`,
-    symbol: "tUSDC",
-    name: "Test USDC",
-    decimals: 6,
-    presets: ["10000", "1000", "100000"],
-    tone: "brand",
-    role: "Loan token — lend it, borrow it, repay with it.",
-  },
-  {
-    address: ADDRESSES.wbtc as `0x${string}`,
-    symbol: "tWBTC",
-    name: "Test Wrapped BTC",
-    decimals: 8,
-    presets: ["1", "0.1", "5"],
-    tone: "warn",
-    role: "Collateral token — post it to open a borrow.",
-  },
-];
-
-/**
- * Faucet body. Rendered both as its own page (`/faucet`) and as a tab inside the
- * market-detail ActionPanel, so the two can never drift apart.
- */
-export function FaucetPanel({ compact = false }: { compact?: boolean }) {
+export function FaucetPanel() {
   const { address, isConnected } = useAccount();
 
   if (!isConnected) {
@@ -60,113 +29,101 @@ export function FaucetPanel({ compact = false }: { compact?: boolean }) {
         </div>
         <p className="empty-state-title">Wallet not connected</p>
         <p className="empty-state-body">
-          Connect a wallet to mint test tokens to it. Minting is permissionless — no A-Pass or
-          allowlist required.
+          Connect a Somnia wallet to drip test collateral to it. Minting is permissionless
+          testnet scaffolding.
         </p>
       </div>
     );
   }
 
   return (
-    <div className={compact ? "space-y-4" : "grid gap-5 md:grid-cols-2"}>
-      {TOKENS.map((t) => (
-        <TokenFaucet key={t.address} token={t} account={address} compact={compact} />
-      ))}
+    <div className="grid gap-5 md:grid-cols-2">
+      <CollateralFaucet account={address!} />
+      {CREDIT_DEPLOYED && <CreditCollateralFaucet account={address!} />}
+      <GasCard account={address!} />
     </div>
   );
 }
 
-function TokenFaucet({
-  token,
-  account,
-  compact,
-}: {
-  token: FaucetToken;
-  account?: `0x${string}`;
-  compact: boolean;
-}) {
-  const { send, pending } = useTx();
-  const balance = useTokenBalance(token.address, account);
-  const [amount, setAmount] = useState(token.presets[0]);
+/** tBTC — the credit layer's collateral. Mint only after deployment. */
+function CreditCollateralFaucet({ account }: { account: `0x${string}` }) {
+  const { writeContractAsync } = useWriteContract();
+  const [pending, setPending] = useState(false);
 
-  const parsed = safeParse(amount, token.decimals);
-  const invalid = amount.trim() !== "" && parsed === undefined;
+  const balance = useReadContract({
+    abi: ERC20_ABI,
+    address: CREDIT.collateralToken ?? undefined,
+    chainId: CHAIN.id,
+    functionName: "balanceOf",
+    args: [account],
+    query: { enabled: !!CREDIT.collateralToken, refetchInterval: 10_000 },
+  });
+
+  const AMOUNT = parseUnits("1", 8); // 1 tBTC ≈ $108k of borrowing capacity
 
   async function mint() {
-    if (!parsed || !account) return;
-    await send(`Mint ${amount} ${token.symbol}`, {
-      address: token.address,
-      abi: ERC20_ABI,
-      functionName: "mint",
-      args: [account, parsed],
-    });
+    const t = toast.loading("Minting tBTC — confirm in wallet…");
+    setPending(true);
+    try {
+      const hash = await writeContractAsync({
+        address: CREDIT.collateralToken!,
+        abi: ERC20_ABI,
+        functionName: "mint",
+        args: [account, AMOUNT],
+      });
+      toast.success(
+        <span>
+          1 tBTC minted{" "}
+          <a
+            href={`${EXPLORER}/tx/${hash}`}
+            target="_blank"
+            rel="noreferrer"
+            className="underline inline-flex items-center gap-0.5"
+          >
+            tx <IconExternal className="w-3 h-3" />
+          </a>
+        </span>,
+        { id: t },
+      );
+    } catch (error) {
+      toast.error(`Mint failed: ${describeError(error).slice(0, 160)}`, { id: t, duration: 9_000 });
+    } finally {
+      setPending(false);
+    }
   }
 
   return (
-    <div className={compact ? "rounded-lg border border-line bg-ink-900/40 p-4 space-y-4" : "card"}>
-      <div
-        className={
-          compact
-            ? "flex items-center justify-between gap-4"
-            : "card-header"
-        }
-      >
+    <div className="card">
+      <div className="card-header">
         <div className="flex items-center gap-3 min-w-0">
-          <TokenMark symbol={token.symbol.replace(/^t/, "")} tone={token.tone} />
+          <TokenMark symbol="BTC" tone="warn" />
           <div className="min-w-0">
-            <div className="text-body font-semibold text-slate-100">{token.symbol}</div>
-            <div className="text-body-sm text-subtle truncate">{token.name}</div>
+            <div className="text-body font-semibold text-slate-100">tBTC</div>
+            <div className="text-body-sm text-subtle truncate">Credit-layer collateral</div>
           </div>
         </div>
-        <span className="badge-neutral flex-shrink-0">{token.decimals} dec</span>
+        <span className="badge-info">Covenant</span>
       </div>
-
-      <div className={compact ? "space-y-4" : "card-body space-y-4"}>
-        {!compact && <p className="text-body-sm text-muted">{token.role}</p>}
-
-        <div className="flex items-center justify-between text-body-sm px-3 py-2 rounded-lg bg-white/5 border border-line">
+      <div className="card-body space-y-4">
+        <p className="text-body-sm text-muted">
+          Post tBTC as collateral to borrow tUSDC at your Ethos tier's terms. One tBTC
+          supports roughly $41.6k of borrowing at Open and $83.2k at Reputable.
+        </p>
+         <div className="flex items-center justify-between text-body-sm px-3 py-2 rounded-lg bg-ink-900 border border-line">
           <span className="text-muted">Your balance</span>
           <span className="font-mono text-slate-100">
-            {balance.isLoading ? "…" : fmtUnits(balance.data as bigint | undefined, token.decimals)}
+            {balance.isLoading || balance.data === undefined
+              ? "…"
+              : fmtUnits(balance.data as bigint, 8, 4)}
           </span>
         </div>
-
-        <div className="flex gap-1.5">
-          {token.presets.map((p) => (
-            <button
-              key={p}
-              onClick={() => setAmount(p)}
-              className={amount === p ? "btn-primary btn-sm flex-1" : "btn-secondary btn-sm flex-1"}
-            >
-              {Number(p).toLocaleString()}
-            </button>
-          ))}
-        </div>
-
-        <label className="field">
-          <span className="field-label">Amount to mint</span>
-          <input
-            className="field-input font-mono"
-            inputMode="decimal"
-            placeholder="0"
-            value={amount}
-            onChange={(e) => setAmount(e.target.value)}
-          />
-          {invalid && (
-            <p className="text-body-sm text-bad mt-1.5">
-              Enter a positive number with at most {token.decimals} decimal places.
-            </p>
-          )}
-        </label>
-
-        <button className="btn-primary w-full" disabled={!parsed || pending} onClick={mint}>
-          {pending ? "Minting…" : `Mint ${token.symbol}`}
+        <button className="btn-primary w-full" disabled={pending} onClick={mint}>
+          {pending ? "Minting…" : "Mint 1 tBTC"}
         </button>
-
         <div className="flex items-center justify-between text-body-sm text-subtle">
-          <span className="font-mono">{shortAddr(token.address)}</span>
+          <span className="font-mono">{shortAddr(CREDIT.collateralToken ?? "0x")}</span>
           <a
-            href={`${EXPLORER}/address/${token.address}`}
+            href={`${EXPLORER}/address/${CREDIT.collateralToken}`}
             target="_blank"
             rel="noreferrer"
             className="link inline-flex items-center gap-1.5"
@@ -180,17 +137,147 @@ function TokenFaucet({
   );
 }
 
-/**
- * `parseUnits` throws on more fraction digits than the token has, and happily
- * accepts "0", "-1", and "1e5" — none of which are valid mint amounts here.
- */
-function safeParse(s: string, decimals: number): bigint | undefined {
-  const v = s.trim();
-  if (!/^\d*\.?\d+$/.test(v)) return undefined;
-  try {
-    const raw = parseUnits(v, decimals);
-    return raw > 0n ? raw : undefined;
-  } catch {
-    return undefined;
+function CollateralFaucet({ account }: { account: `0x${string}` }) {
+  const trader = useDreamDexTrader();
+  const quote = useDreamDexQuoteBalance();
+  const { switchChain } = useSwitchChain();
+  const [pending, setPending] = useState(false);
+
+  async function drip() {
+    const t = toast.loading("Dripping TestUSDC — confirm in wallet…");
+    setPending(true);
+    try {
+      const result = await trader.faucet();
+      // TxResult carries `hash` at the top level — `txHash` never existed.
+      const hash = result.hash;
+      toast.success(
+        <span>
+          TestUSDC minted{" "}
+          {hash && (
+            <a
+              href={`${EXPLORER}/tx/${hash}`}
+              target="_blank"
+              rel="noreferrer"
+              className="underline inline-flex items-center gap-0.5"
+            >
+              tx <IconExternal className="w-3 h-3" />
+            </a>
+          )}
+        </span>,
+        { id: t },
+      );
+      await trader.refresh();
+    } catch (error) {
+      toast.error(`Faucet failed: ${describeError(error).slice(0, 160)}`, {
+        id: t,
+        duration: 9_000,
+      });
+    } finally {
+      setPending(false);
+    }
   }
+
+  return (
+    <div className="card">
+      <div className="card-header">
+        <div className="flex items-center gap-3 min-w-0">
+          <TokenMark symbol="USDC" tone="ok" />
+          <div className="min-w-0">
+            <div className="text-body font-semibold text-slate-100">{QUOTE_TOKEN.symbol}</div>
+            <div className="text-body-sm text-subtle truncate">{QUOTE_TOKEN.name}</div>
+          </div>
+        </div>
+        <span className="badge-ok">DreamDEX faucet</span>
+      </div>
+
+      <div className="card-body space-y-4">
+        <p className="text-body-sm text-muted">
+          The collateral every Event Contract prices and settles against. One drip funds
+          plenty of testnet orders.
+        </p>
+
+         <div className="flex items-center justify-between text-body-sm px-3 py-2 rounded-lg bg-ink-900 border border-line">
+          <span className="text-muted">Balance · {shortAddr(account)}</span>
+          <span className="font-mono text-slate-100">
+            {quote.isLoading || quote.raw === undefined
+              ? "…"
+              : fmtUnits(quote.raw, quote.decimals, 2)}
+          </span>
+        </div>
+
+        {!trader.onSomnia ? (
+          <button
+            className="btn-primary w-full"
+            onClick={() => switchChain({ chainId: CHAIN.id })}
+          >
+            Switch to {CHAIN.name}
+          </button>
+        ) : (
+          <button className="btn-primary w-full" disabled={pending} onClick={drip}>
+            {pending ? "Minting…" : "Drip TestUSDC"}
+          </button>
+        )}
+
+        <div className="flex items-center justify-between text-body-sm text-subtle">
+          <span className="font-mono">{shortAddr(QUOTE_TOKEN.address)}</span>
+          <a
+            href={`${EXPLORER}/address/${QUOTE_TOKEN.address}`}
+            target="_blank"
+            rel="noreferrer"
+            className="link inline-flex items-center gap-1.5"
+          >
+            Explorer
+            <IconExternal className="w-3.5 h-3.5" />
+          </a>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function GasCard({ account }: { account: `0x${string}` }) {
+  const stt = useBalance({ address: account });
+
+  return (
+    <div className="card">
+      <div className="card-header">
+        <div className="flex items-center gap-3 min-w-0">
+          <TokenMark symbol="STT" tone="warn" />
+          <div className="min-w-0">
+            <div className="text-body font-semibold text-slate-100">STT</div>
+            <div className="text-body-sm text-subtle truncate">Somnia gas token</div>
+          </div>
+        </div>
+        <span className="badge-neutral">External faucet</span>
+      </div>
+
+      <div className="card-body space-y-4">
+        <p className="text-body-sm text-muted">
+          Every order, approval, and cancel needs a little STT for gas. The public Somnia
+          faucet is Discord-gated, so it opens in a new tab rather than dripping from here.
+        </p>
+
+         <div className="flex items-center justify-between text-body-sm px-3 py-2 rounded-lg bg-ink-900 border border-line">
+          <span className="text-muted">Your balance</span>
+          <span className="font-mono text-slate-100">
+            {stt.isLoading
+              ? "…"
+              : stt.data
+                ? `${Number(stt.data.formatted).toFixed(4)} STT`
+                : "—"}
+          </span>
+        </div>
+
+        <a
+          href={SOMNIA_FAUCET_URL}
+          target="_blank"
+          rel="noreferrer"
+          className="btn-secondary w-full text-center inline-flex items-center justify-center gap-2"
+        >
+          Get STT from the Somnia faucet
+          <IconExternal className="w-3.5 h-3.5" />
+        </a>
+      </div>
+    </div>
+  );
 }

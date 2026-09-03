@@ -1,0 +1,33 @@
+{
+  "_comment": "Covenant credit layer on Somnia testnet (chain 50312). Cancun-targeted build. Loan token is the DreamDEX venue collateral so borrowed capital trades on DreamDEX directly. Score signer: 0xaAb51184CA096F8ea48331a4262E689AAc4B5787.",
+  "chainId": 50312,
+  "covenant": "0xA11c466cbebB86f865e2Ccea5F0f273b078E30C7",
+  "notary": "0x82E4C657aaE87151243AE439eC8c33210AE30415",
+  "loanToken": "0x70a86D8842FB63C4Ad2b7cdddF530eBf1BB25d8E",
+  "collateralToken": "0xCb4f3F36C723C186AbaA3DE6Ec2A04F3656e77eD",
+  "oracle": "0xADbE706FF8c80850457D0A91f19cd79A5C9098E0",
+  "maturity": 1803859200,
+  "markets": {
+    "open": {
+      "gate": "0xEE6fF9E8FD639E15d9a077c2aceF0e8Ba16A4844",
+      "threshold": 0,
+      "lltv": "385000000000000000",
+      "maxLif": "1181683899556868537",
+      "marketId": "0xbc1f231da78029b2a891e8c7d80c765224f45697d2bf2a2ee7e7ecb00f3df1ae"
+    },
+    "established": {
+      "gate": "0xC0E6a382e9F761c793F6714fC427e93e26520161",
+      "threshold": 1600,
+      "lltv": "625000000000000000",
+      "maxLif": "1103448275862068965",
+      "marketId": "0x987fb3b208df8942d4adb5dfc2639ce997e8d1f1ed29ba41370db429c405149f"
+    },
+    "reputable": {
+      "gate": "0x0f596034793EDDDd3a6c32C00c4BbF780E31868D",
+      "threshold": 2000,
+      "lltv": "770000000000000000",
+      "maxLif": "1061007957559681697",
+      "marketId": "0xef116848e2da8cb6553350b02f8670c00a04629f765295797d38baf7cc787046"
+    }
+  }
+}

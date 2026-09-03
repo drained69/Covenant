@@ -75,7 +75,7 @@ interface IAPassComplianceValidator {
      * where Cleanverse submits the write and returns a `tx_hash`, failing with error `12026`).
      *
      * The `*FromContract` selectors below are therefore grounded in on-chain behaviour rather than
-     * in either document: they are confirmed working against the live Monad validator, where
+     * in either document: they are confirmed working against the live validator, where
      * `getRulesV2(gate)` returns the rule this gate set. Re-verify the selectors if Cleanverse
      * redeploys the validator implementation behind its proxy.
      */

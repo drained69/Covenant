@@ -1,5 +1,8 @@
 {
   "dependencies": {
-    "ethers": "^6.17.0"
+    "@somnia-chain/markets-sdk": "^0.28.1",
+    "dotenv": "^17.4.2",
+    "ethers": "^6.17.0",
+    "viem": "^2.56.0"
   }
 }

@@ -23,9 +23,9 @@ export function Overview() {
       title="Covenant"
       lede={
         <>
-          Fixed-rate, fixed-maturity credit where the compliance check is part of the
-          transaction rather than a promise made beside it. These pages cover how the
-          protocol works, what the gate actually enforces, and the math the contracts run.
+          Reputation-aware trading capital for DreamDEX Event Contracts on Somnia. These pages
+          cover how the protocol works, what the reputation layer actually enforces, and the
+          math the contracts run.
         </>
       }
     >
@@ -35,19 +35,17 @@ export function Overview() {
       >
         <Prose>
           <p>
-            Institutional credit on-chain has an unresolved tension. Permissionless pools
-            are liquid but cannot say who is on the other side of a position, so regulated
-            capital cannot touch them. Permissioned venues can say who, but do it with an
-            allowlist maintained off-chain — which means the guarantee lives in an
-            operator's database, not in the contract.
+            Prediction markets are capital-intensive. Traders must fully fund every position
+            even when they carry a strong, portable on-chain reputation — and every wallet is
+            treated identically regardless of how it has behaved across the ecosystem.
           </p>
           <p>
-            Covenant takes the third option: the eligibility check runs inside the state
-            transition. A position cannot be opened unless a bounded call to a compliance
-            validator returns true in the same transaction that moves the funds. There is
-            no window between "verified" and "settled", because they are the same
-            transaction. If the validator reverts, is missing, or runs out of the gas it
-            was budgeted, the fill reverts — the gate fails closed.
+            Covenant combines two primitives: Ethos credibility as an underwriting signal, and
+            collateral as the security mechanism. A wallet's score maps it to a transparent
+            credit tier that sets the terms under which its collateral supports borrowed
+            capital — and that capital flows straight into live DreamDEX markets. Reputation
+            improves access; it never replaces collateral, and a falling score can never block
+            an exit.
           </p>
         </Prose>
 
@@ -144,23 +142,22 @@ export function Overview() {
       >
         <Note title="Unaudited testnet software">
           <p>
-            Covenant is deployed on {CHAIN.name} with test tokens. The contracts have not
-            been audited. Nothing here should hold production funds, and the tokens in the
-            markets have no value — they are mintable from the{" "}
+            Covenant trades on {CHAIN.name} with test tokens. The contracts have not been
+            audited. Nothing here should hold production funds, and the tokens in the
+            markets have no value — the venue collateral drips from the{" "}
             <Link to="/faucet" className="link">
               faucet
             </Link>
             .
           </p>
           <p>
-            The compliance gates for the credit ladder are deployed and whitelisted but
-            have not completed Cleanverse registration. Until they do, their rule lists are
-            empty and every wallet reads as not-yet-eligible. That is a registration state,
-            not a verdict on any particular wallet — see{" "}
+            The on-chain tier gates and three credit markets are deployed on Somnia testnet.
+            Every DreamDEX order still settles against real TestUSDC held by your wallet;
+            available credit must be borrowed into that balance before it can be traded. See{" "}
             <Link to="/docs/credit-ladder" className="link">
-              Credit ladder
+              Credit tiers
             </Link>{" "}
-            for the current status of each rung.
+            for what is enforced today and what is next.
           </p>
         </Note>
 
@@ -183,6 +180,10 @@ export function Overview() {
             </p>
           </div>
           <div className="flex flex-wrap gap-3 flex-shrink-0">
+            <Link to="/docs/how-to" className="btn-secondary group">
+              How to use Covenant
+              <IconArrowRight className="w-4 h-4 transition-transform duration-200 group-hover:translate-x-0.5" />
+            </Link>
             <Link to="/docs/how-it-works" className="btn-primary group">
               How it works
               <IconArrowRight className="w-4 h-4 transition-transform duration-200 group-hover:translate-x-0.5" />
@@ -212,20 +213,20 @@ const CONSEQUENCES = [
   },
   {
     title: "The gate is part of the market id",
-    body: "A market id is the keccak of every field, gate address included. A market's compliance policy cannot be rebound after creation, because rebinding it produces a different market with no shared state.",
+    body: "A market id is the keccak of every field, gate address included. A market's underwriting policy cannot be rebound after creation, because rebinding it produces a different market with no shared state.",
     source: "src/libraries/IdLib.sol",
   },
   {
-    title: "The credential prices the leverage",
-    body: "A ladder of gates turns a yes-or-no credential into terms: a higher verified sub-tier clears a higher bar, and a higher bar carries more leverage. The binding is in the id, not in an operator's discretion.",
+    title: "The reputation prices the terms",
+    body: "A ladder of tiers turns a raw score into terms: higher Ethos credibility clears a higher bar, and a higher bar carries better collateral terms. The binding is in the market id, not in an operator's discretion.",
     source: "src/periphery/CreditLadderLens.sol",
   },
 ] as const;
 
 /*
-  Three audiences, and the pages each can skip. The compliance path leads with
-  Compliance rather than How it works because a reader evaluating enforcement
-  wants the list of what is gated before the walkthrough of a fill.
+  Three audiences, and the pages each can skip. The trader path leads with
+  How it works because a trader evaluating the product wants the flow before
+  the policy detail.
 */
 const READING_PATHS = [
   {
@@ -237,17 +238,17 @@ const READING_PATHS = [
     ],
   },
   {
-    goal: "Integrate or deploy a gate",
+    goal: "Qualify for capital",
     steps: [
-      { to: "/docs/compliance", label: "Compliance" },
-      { to: "/docs/credit-ladder", label: "Credit ladder" },
+      { to: "/credit", label: "Your tier" },
+      { to: "/docs/credit-ladder", label: "Credit tiers" },
       { to: "/docs/reference", label: "Reference" },
     ],
   },
   {
     goal: "Assess what is actually enforced",
     steps: [
-      { to: "/docs/compliance", label: "Compliance" },
+      { to: "/docs/credit-ladder", label: "Credit tiers" },
       { to: "/docs/math", label: "Core math" },
       { to: "/docs/reference", label: "Reference" },
     ],

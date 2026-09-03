@@ -16,7 +16,7 @@ export function Architecture() {
     <DocPage
       eyebrow="Architecture"
       title="How the system fits together"
-      lede="Four layers, each talking to the one below through a narrow, view-only interface — and a market id that is the hash of every parameter, gate addresses included, so a market's compliance policy cannot be rebound after the market exists."
+      lede="Four layers, each talking to the one below through a narrow, view-only interface — and a market id that is the hash of every parameter, gate addresses included, so a market's underwriting policy cannot be rebound after the market exists."
     >
       <Section
         title="The four layers"
@@ -27,13 +27,13 @@ export function Architecture() {
             index="01"
             title="Frontend"
             path="frontend/"
-            body="React + wagmi SPA. Reads market state from Covenant.toMarket(id) and submits fills via fillOffer. There is no backend of our own — the marketplace is whatever channel a maker uses to publish signed offers, which is why the app can be static."
+            body="React + wagmi SPA. Discovers live DreamDEX Event Contracts through the official Somnia Markets SDK, reads Ethos credibility per wallet, submits Up/Down orders, and tracks the unified credit and position portfolio. There is no backend of our own."
           />
           <LayerCard
             index="02"
             title="Off-chain services"
             path="offchain/"
-            body="sign_offer.js produces EIP-712 offers; cleanverse_client.py talks to the Cooperate API over AES-CBC with an api-id header. The client's attestable rule mirrors the on-chain gate's fail-closed rule, so the two halves cannot disagree about who is eligible."
+            body="sign_offer.js produces EIP-712 credit offers; the Ethos score service reads credibility, checks status and freshness, and issues short-lived wallet-bound score authorizations — bounded underwriting signals, never fund-moving authority."
           />
           <LayerCard
             index="03"
@@ -43,9 +43,9 @@ export function Architecture() {
           />
           <LayerCard
             index="04"
-            title="Compliance surface"
-            path="src/compliance/"
-            body="Gates answer 'may this account open a position?'. WrappedAToken answers 'may this account receive these tokens?'. Both run the same isRegistered + complianceVerify staticcall against the CCP V2 validator, under the same 150k gas cap, with the same fail-closed rule."
+            title="Reputation surface"
+            path="src/compliance/ · src/periphery/"
+            body="Gates answer 'may this account take new exposure?' through narrow policy hooks — canIncreaseDebt, canIncreaseCredit, canLiquidate. Score authorizations are wallet-, chain-, contract-, nonce-, and expiry-bound, and fail closed."
             emphasized
           />
         </div>
@@ -82,7 +82,7 @@ export function Architecture() {
         <Prose>
           <p>
             Four consequences fall directly out of that, and together they are most of what
-            makes the compliance story credible. They are stated as invariants I1.1–I1.4 in{" "}
+            makes the underwriting story credible. They are stated as invariants I1.1–I1.4 in{" "}
             <code className="code-inline">docs/CoreMath.md</code>, and they are properties of
             keccak rather than of any access-control code we wrote.
           </p>
@@ -124,18 +124,19 @@ export function Architecture() {
 
         <Note title="Why a gate swap is a different market">
           <p>
-            In a system where the gate is a mutable pointer, "this pool is permissioned" is a
-            statement about the current value of a storage slot — true until an admin key says
-            otherwise, and unverifiable by anyone reading a past transaction. Here it is a
-            statement about an identifier. Point a market at a different gate and you have not
-            modified that market; you have described a different one, with a different id, holding
-            none of the original's liquidity or positions.
+            In a system where the gate is a mutable pointer, "this market requires a 2000
+            score" is a statement about the current value of a storage slot — true until an
+            admin key says otherwise, and unverifiable by anyone reading a past transaction.
+            Here it is a statement about an identifier. Point a market at a different gate and
+            you have not modified that market; you have described a different one, with a
+            different id, holding none of the original's liquidity or positions.
           </p>
           <p>
-            That is the whole reason the ladder in{" "}
-            <Link to="/docs/credit-ladder" className="link">Credit ladder</Link> can bind an LLTV
-            to a credential tier. The 91.5% market is not a market that happens to use the
-            sub-tier-30 gate today — the sub-tier-30 gate is part of what makes it that market.
+            That is the whole reason the tiers in{" "}
+            <Link to="/docs/credit-ladder" className="link">Credit tiers</Link> can bind an LTV
+            to a reputation bar. The 77% market is not a market that happens to use the
+            Reputable-tier gate today — the Reputable-tier gate is part of what makes it that
+            market.
           </p>
         </Note>
       </Section>

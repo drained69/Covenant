@@ -15,13 +15,17 @@
  */
 
 const { ethers } = require("ethers");
+const path = require("path");
+
+const deploymentPath = process.env.MANIFEST || path.join(__dirname, "..", "deployments", "somnia-testnet.json");
+const deployment = require(deploymentPath);
 
 // ─────────────────────────────────────────────────────────────────────────────
-// CONFIG — Monad testnet deployment addresses
+// CONFIG — target testnet deployment addresses
 // ─────────────────────────────────────────────────────────────────────────────
 const CONFIG = {
-  chainId: 10143,
-  ecrecoverNotary: process.env.ECRECOVER_NOTARY_ADDRESS || "0xc35B4e48940D68Dd449d19D3657e754632CC873C",
+  chainId: Number(process.env.CHAIN_ID || 50312),
+  ecrecoverNotary: process.env.ECRECOVER_NOTARY_ADDRESS || deployment.notary,
   lenderPrivateKey: process.env.PRIVATE_KEY,
 };
 
@@ -120,24 +124,25 @@ function hashOffer(offer) {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// The live Monad testnet market (must match on-chain exactly).
+// The live target-testnet market (must match on-chain exactly).
 //
 // Market ids are content-addressed — the id is keccak of this struct — so every
 // field here must equal the on-chain market byte for byte. A single wrong field
 // addresses a different, uninitialized market and fillOffer reverts.
 // ─────────────────────────────────────────────────────────────────────────────
+const targetMarket = deployment.markets.open;
 const MARKET = {
-  loanToken: "0x7dbe32f1e1d3db45123f60ec5a79312863a7e279",
+  loanToken: deployment.loanToken,
   collateralParams: [{
-    token:  "0x088b748e05b85af8ad2ee3c538a517f3eb1ce2ad",
-    lltv:   "860000000000000000",
-    maxLif: "1036269430051813471",
-    oracle: "0x2E09f0566A87Bb27615873aBCF18855d37b000F9", // STALENESS=0 — price never expires
+    token: deployment.collateralToken,
+    lltv: targetMarket.lltv,
+    maxLif: targetMarket.maxLif,
+    oracle: deployment.oracle,
   }],
-  maturity:     1820000000,
+  maturity:     deployment.maturity,
   rcfThreshold: 0,
-  entryGate:    "0xd49faa5d2d18b0ad04ef01093d2c2ef24ea8ad2c",
-  seizureGate:  "0xd49faa5d2d18b0ad04ef01093d2c2ef24ea8ad2c",
+  entryGate:    targetMarket.gate,
+  seizureGate:  targetMarket.gate,
 };
 
 // ─────────────────────────────────────────────────────────────────────────────

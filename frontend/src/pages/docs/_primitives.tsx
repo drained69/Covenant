@@ -41,7 +41,7 @@ export function DocPage({
     <article className="space-y-16 pb-8">
       <header className="space-y-3">
         <div className="section-label">{eyebrow}</div>
-        <h1 className="text-h1 text-slate-50">{title}</h1>
+        <h1 className="text-h2 sm:text-h1 text-slate-50">{title}</h1>
         <p className="max-w-prose text-body text-muted leading-relaxed">{lede}</p>
       </header>
       {children}
@@ -110,7 +110,7 @@ export function StepCard({
         <span
           className={`flex-shrink-0 w-6 h-6 rounded-md flex items-center justify-center
                       font-mono text-[10px] font-bold tabular-nums ${
-                        emphasized ? "bg-brand-400 text-ink-950" : "bg-white/10 text-slate-300"
+                        emphasized ? "bg-brand-400 text-ink-950" : "bg-ink-900 text-slate-300"
                       }`}
         >
           {String(n).padStart(2, "0")}

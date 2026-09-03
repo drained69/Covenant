@@ -27,10 +27,9 @@ import {ICovenant} from "../src/interfaces/ICovenant.sol";
 /// Run:
 ///   forge script script/DeployLadderLens.s.sol --rpc-url $RPC_URL --broadcast --legacy
 ///
-/// Then verify (Monad testnet uses Sourcify, not Etherscan):
+/// Then verify using the target network's supported verifier:
 ///   forge verify-contract <addr> src/periphery/CreditLadderLens.sol:CreditLadderLens \
-///     --chain 10143 --verifier sourcify \
-///     --verifier-url https://sourcify-api-monad.blockvision.org/
+///     --chain 50312
 contract DeployLadderLens is Script {
     function run() external returns (address lensAddress) {
         uint256 pk = vm.envUint("PRIVATE_KEY");

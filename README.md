@@ -1,698 +1,1165 @@
 # Covenant
 
-**Compliance-native infrastructure for institutional on-chain credit.**
+**Trade the future with reputation-backed capital.**
 
-Covenant makes fixed-rate, fixed-maturity credit markets usable by regulated institutions. It combines a fixed-maturity credit engine with a gate layer that enforces identity verification, jurisdictional policy, and sanctions screening *inside* the market's own access-control path — not as an off-chain side process.
+Covenant is a reputation-aware prediction market application for [DreamDEX Event Contracts](https://docs.dreamdex.io/developers/event-contracts) on Somnia. It helps traders discover live markets, access conservative collateralized trading capital based on [Ethos](https://www.ethos.network/) credibility, and execute Up or Down positions from one interface.
 
-Live on **Monad Testnet** (chain id `10143`) against Cleanverse's CVI Compliance Validator. Addresses are in [Deployment](#deployment); the running interface is under [`frontend/`](#getting-started).
+The product is the trading experience; reputation and credit are what make it different:
 
----
+- **DreamDEX trading (the product):** live Event Contract discovery, implied probabilities, order-book depth, expiry countdowns, testnet order execution, and position/payout tracking — all through the official Somnia Markets SDK.
+- **Ethos-powered trading limits (the differentiator):** a wallet's Ethos credibility score maps it to a transparent credit tier whose gate is hashed into the market's identity — the same collateral supports 2× more borrowing at Reputable (77% LTV) than at Open (38.5%).
+- **Covenant lending (the infrastructure):** a fixed-rate, fixed-maturity credit engine that stays invisible until the trader asks for capital — then it is three clicks: authorize score, post collateral, borrow.
 
-## Contents
+> [!IMPORTANT]
+> Covenant is experimental software under active development. It has not been audited and must not be used with production assets. The trading application and the **entire tier-gated credit layer run live on Somnia testnet**: DreamDEX discovery, Up/Down execution, the unified portfolio, on-chain Ethos score authorization, collateralized borrowing, and redemption — all verified end-to-end against the live chain (a test trader borrowed 500 tUSDC against 1 tBTC through a live Ethos-gated market). The contracts remain unaudited; test tokens only.
 
-| Section | What it answers |
-|---------|-----------------|
-| [The problem](#the-problem) · [The approach](#the-approach) | Why an on-chain gate exists at all |
-| [Architecture](#architecture) | The four layers and how they talk to each other |
-| [Compliance layer](#compliance-layer) | The two integration paths and what they share |
-| [Function coverage](#function-coverage) | Exactly which calls are gated, and which are deliberately not |
-| [Core formulas](#core-formulas) | Market identity, oracle scaling, health, liquidation, fees |
-| [The credit ladder](#the-credit-ladder) | How a credential is priced into leverage |
-| [Roadmap](#roadmap) | What is unbuilt: which Cleanverse call each item consumes and where its verdict lands on-chain |
-| [Deployment](#deployment) | Live addresses, integration status, repository layout |
-| [Getting started](#getting-started) | Build, test, run the frontend, run the off-chain services |
-| [Design choices](#design-choices) | Fifteen decisions, each with its trade-off stated |
+## Project at a Glance
 
----
+| Item | Detail |
+|---|---|
+| Product | Reputation-aware Event Contract trading interface and collateralized credit layer |
+| Network | Somnia Shannon testnet, chain `50312` |
+| Event venue | DreamDEX Event Contracts |
+| Trading collateral | DreamDEX TestUSDC, `0x70a86D8842FB63C4Ad2b7cdddF530eBf1BB25d8E` |
+| Credit collateral | Test Wrapped BTC (`tBTC`), 8 decimals |
+| Reputation source | Ethos v2 credibility score API |
+| Frontend | React 18, TypeScript, Vite, wagmi, viem, RainbowKit |
+| DreamDEX integration | `@somnia-chain/markets-sdk` and `@somnia-chain/markets-sdk/react` |
+| Credit contracts | Solidity and Foundry, deployed to Somnia testnet |
+| Prototype status | Working testnet prototype; unaudited and not production-ready |
 
-## The problem
+### What Makes the Integration Meaningful
 
-On-chain lending today is either variable-rate or permissionless. Neither is usable by a bank, a tokenized-deposit provider, or an RWA issuer. Those institutions need three things before they can extend credit on-chain:
+Covenant does not use DreamDEX as a logo, price feed, or isolated widget. DreamDEX
+is the execution and settlement venue for the product:
 
-1. **Verified counterparties** — they cannot legally lend to unscreened wallets.
-2. **Jurisdiction-aware transfer rules** — every position change must clear sanctions and Travel Rule policy.
-3. **Extractable audit trails** — regulators must be able to reconstruct who lent to whom, under what terms.
+1. The first screen discovers active Event Contracts from DreamDEX.
+2. Market pages stream DreamDEX books, fills, and the settlement oracle price.
+3. User orders are submitted to DreamDEX contracts through the official SDK.
+4. The resulting ERC-6909 outcome positions and PnL are read back from DreamDEX.
+5. Winning positions are redeemed through DreamDEX settlement.
+6. Covenant loans are issued in the exact TestUSDC token DreamDEX escrows for orders.
 
-The standard industry answer is to bolt KYC on as an off-chain gate: a database checked before a transaction, disconnected from settlement, invisible to auditors, and stale the moment a credential is revoked. That leaves a permanent gap between *who passed KYC* and *who actually holds the position*. Covenant closes that gap by moving the check on-chain and into the settlement path itself.
+The sixth point is the product's central integration thesis. Reputation-backed
+credit does not stop at a separate lending dashboard: the borrowed asset becomes
+usable trading capital on every live DreamDEX Event Contract immediately after
+the borrow transaction.
 
-## The approach
+### Submission Criteria
 
-The credit engine exposes three access-control hooks that fire before any position change:
+| Criterion | Evidence in Covenant |
+|---|---|
+| Working prototype | Live DreamDEX reads and writes, deployed Somnia credit contracts, faucet flow, wallet transactions, portfolio, repayment, and redemption |
+| Event Contract integration | Discovery, lifecycle, four-sided outcome book, order entry, cancellation, fills, ERC-6909 balances, settlement, and claims |
+| Meaningful API/SDK use | Shared `SomniaMarkets` client, React live-tail hooks, indexer queries, trader writes, Ethos score reads, and EIP-712 authorization service |
+| Clear user experience | Markets-first homepage, searchable market table, explicit YES/NO prices, payoff preview, three-step capital checklist, and unified portfolio |
+| Innovation | Portable reputation changes collateral efficiency while collateral remains the enforceable safety boundary |
+| Adoption potential | More qualified trading capital can produce additional DreamDEX participation; the same capital can also fund SDK-compatible trading agents |
+| Ecosystem impact | Connects reputation, fixed-maturity credit, and Event Contract execution without requiring DreamDEX to modify its contracts |
 
-| Hook | Fires when | Question asked |
-|------|-----------|----------------|
-| `canIncreaseCredit(account)` | An account's credit (lending) position grows | May this account lend? |
-| `canIncreaseDebt(account)` | An account's debt (borrowing) position grows | May this account borrow? |
-| `canLiquidate(account)` | An account attempts a liquidation | May this account seize? |
+## Table of Contents
 
-Covenant implements these hooks against **Cleanverse**, whose Cooperate API (v5.6) supplies two primitives that map onto them directly:
+- [Overview](#overview)
+- [Why Covenant](#why-covenant)
+- [Hackathon Scope](#hackathon-scope)
+- [Evaluator Demo](#evaluator-demo)
+- [Product Experience](#product-experience)
+- [Architecture](#architecture)
+- [DreamDEX Integration](#dreamdex-integration)
+- [Protocol Mechanics](#protocol-mechanics)
+- [Trust Model](#trust-model)
+- [Security](#security)
+- [Development](#development)
+- [Deployment](#deployment)
+- [Roadmap](#roadmap)
 
-- **A-Pass** — a credential registered on-chain against a wallet, carrying an expiry, a tier and sub-tier, a group, and ISO-3166 country tags derived from the holder's identity documents. It can be frozen and unfrozen, and it is the unit of institutional identity.
-- **Compliance pools** — per-chain contracts holding rules that decide whether a wallet is eligible. Rules combine a country allow/deny list (`is_black_list`, `countries`), tier and group constraints, and a pause switch. `POST /validator/verify` answers, for a given pool and wallet, `valid: true | false`.
+## Overview
 
-That verify call is the same question a gate hook asks, which is what makes the mapping clean: **a Covenant market's policy is a Cleanverse compliance pool.**
+Prediction-market traders need capital, but existing platforms treat every wallet identically. Covenant's trading flow:
 
-### How the two halves connect
+1. A trader opens Covenant and lands on **live DreamDEX Event Contracts** — questions, implied probabilities, depth, and time to expiry.
+2. They open a market and see the order panel, which includes their **trading capital**: wallet collateral plus the credit line their Ethos tier earns.
+3. One click — **Get trading capital** — walks the on-chain credit flow: authorize the Ethos score at the tier gate, post tBTC collateral, borrow tUSDC by filling a signed lender offer.
+4. They place an **Up or Down order** through the official DreamDEX SDK.
+5. The portfolio tracks the whole trade together: debt, collateral health, outcome positions, and PnL — with repayment and withdrawal never gated by reputation.
 
-Cleanverse and Covenant meet at exactly one point: the gate contract. Everything else is an implementation detail on one side or the other.
+Collateral remains the primary security mechanism. Ethos is a bounded underwriting signal that sets the terms; it never replaces collateral and never blocks an exit.
 
+## Why Covenant
+
+### For Traders
+
+- Trade DreamDEX Event Contracts from an interface that treats capital as part of the product.
+- See the exact tier a score earns, and how far it is from the next bar, before committing.
+- Convert reputation into borrowing power: the same tBTC supports 2× more debt at Reputable than at Open.
+- Keep repayment and withdrawal paths available even if a reputation authorization expires.
+
+### For Lenders
+
+- Select explicit maturity, price, collateral, and reputation requirements.
+- Sign offers off-chain and settle only accepted offers on-chain.
+- Rely on deterministic collateral-health and liquidation rules.
+- Isolate risk across immutable, content-addressed markets.
+
+### For DreamDEX
+
+- Qualified traders get access to additional working capital, directly in the venue's collateral.
+- Lending activity connects directly to Event Contract participation.
+- A foundation for reputation-aware trading agents and portfolio risk tools.
+
+## Hackathon Scope
+
+Covenant is being prepared for the **Somnia x DreamDEX Event Contracts Hackathon**. The target submission is a working Somnia testnet prototype with the following end-to-end flow:
+
+```text
+Open Covenant — land on live DreamDEX markets        (live)
+      |
+      v
+Discover an Event Contract: probability, depth,     (live)
+expiry, settlement state
+      |
+      v
+Connect a wallet · see Ethos score and credit tier  (live)
+      |
+      v
+Get trading capital: authorize score at the tier    (live Somnia
+gate, post tBTC, borrow tUSDC via signed offer       deployment)
+      |
+      v
+Place an Up or Down order through the SDK           (live)
+      |
+      v
+Track debt, collateral health, position, and PnL    (live)
+in one portfolio · repay or redeem anytime
 ```
-   Institution's KYC provider           Cleanverse Cooperate API              Cleanverse compliance pool
-   (documents, sanctions, jurisdiction)  (rules, A-Pass, verify)              (on-chain contract)
-                    │                              │                                   │
-                    └──── issues A-Pass ──────────▶│                                   │
-                                                   └── registers wallet against ─────▶│
-                                                                                       │
-                                                                                       │  isRegistered()
-                                                                                       │  paused()
-                                                                                       │  verify(wallet)
-                                                                                       ▲
-   ┌───────────────────────────────────────────────────────────────────────────────────┘
-   │
-   │ every position-increasing tx
-   │
-   ▼
-   Covenant market  ──▶  entryGate.canIncreaseCredit/Debt  ──▶  CleanversePoolGate  ──▶  validator.complianceVerify(gate, user)
-                     ▲
-                     └── seizureGate.canLiquidate ──▶ same path for liquidators
-```
 
-The gate is the **only** place the two systems touch. That single point is what makes the integration auditable: a regulator or internal risk team can trace any position back to the exact pool it depends on, the exact rules that pool held at the time, and the exact A-Pass that satisfied them.
+### Implementation Status
 
-### Why an on-chain gate at all
+| Component | Status | Notes |
+|---|---|---|
+| DreamDEX market discovery | Implemented | Live markets, lifecycle state, prices, and order-book depth through the official SDK |
+| DreamDEX order execution | Implemented | Testnet Up/Down order placement and cancellation using venue collateral |
+| Unified portfolio | Implemented | Credit + collateral + outcome positions with avg-cost PnL, resting orders, fills |
+| Ethos score lookup | Implemented | Live v2 API read with tier assignment in the UI |
+| Ethos tier gate | Implemented | `src/reputation/EthosTierGate.sol` — signed score authorizations, wallet/chain/nonce/expiry-bound, fail-closed |
+| Tier-gated credit markets | Implemented | Three markets at 38.5% / 62.5% / 77% LLTV; gate address hashed into each market id |
+| Credit service | Implemented | `offchain/somnia-service.mjs` — signs score authorizations from live Ethos reads and lender offers |
+| Somnia deployment | **Deployed** | Live on Somnia testnet — verified end-to-end with a real borrow; addresses in [Deployment](#deployment) |
+| Fixed-maturity lending engine | Implemented | Offer fills, collateral, repayment, redemption, liquidation, and fees — 524-test Foundry suite |
+| EIP-712 offer authorization | Implemented | Off-chain offers with on-chain notary verification |
 
-What Cleanverse cannot do is answer a Solidity `view`. A gate hook executes inside a trade with no ability to make an HTTPS request, so Covenant needs a source of truth reachable from inside the EVM. Two shapes work:
+This table is the source of truth for submission readiness. Features are marked implemented only after they are integrated and verified in this repository.
 
-1. **Cleanverse's own on-chain compliance pool** — Cleanverse deploys a contract per chain that mirrors the same rules the Cooperate API enforces off-chain. The gate calls it directly with a bounded-gas `staticcall`. This is Path A below and is the default institutional integration.
-2. **A Covenant-operated attestation registry** — authorised attesters call the Cooperate API off-chain, then commit the verdict on-chain as an attestation the gate reads. This is Path B, used when Cleanverse does not yet have an on-chain pool on the target chain, or when Covenant needs to layer additional policy (per-action limits, per-market caps) on top of pure Cleanverse eligibility.
+## Evaluator Demo
 
-Both paths satisfy the same market interface, so a market's compliance guarantee does not depend on which one it uses — only on the fact that the gate is bound at market creation and cannot be swapped.
+This is the shortest path through the complete working product. It is designed
+to make the connection between reputation, borrowed capital, and DreamDEX
+execution visible rather than asking an evaluator to infer it from separate
+screens.
 
-The result is that compliance becomes a mechanical property of the market. An account with no valid attestation cannot open a position. A revoked credential blocks further exposure at the contract level, in the same transaction, without an off-chain process needing to notice. Because gates are part of a market's identity, they cannot be swapped out after the fact — a market is either compliant from creation or it is a different market.
+### Before Starting
+
+Use a browser wallet connected to Somnia Shannon testnet (`50312`). The wallet
+needs:
+
+- A small amount of STT for transaction gas.
+- DreamDEX TestUSDC for direct trading or as the balance that visibly increases after borrowing.
+- Covenant tBTC for the collateralized credit demonstration.
+- An Ethos-linked wallet if demonstrating the Established or Reputable tiers. An unlinked or unavailable score follows the conservative Open-tier path.
+
+The in-app **Faucet** page links to the STT faucet, calls the official DreamDEX
+TestUSDC faucet through the SDK, and mints the test tBTC used by the deployed
+credit markets.
+
+### Recommended Demo Script
+
+1. **Open Markets.** Confirm that the page lists live DreamDEX Event Contracts rather than static sample cards. Point out the question, asset, interval, YES/NO probability, volume, and settlement countdown.
+2. **Open one active contract.** Show the live settlement-oracle EMA, strike, price-versus-strike indicator, two-sided outcome selector, order-book depth, spread, volume, and recent fills.
+3. **Switch YES and NO.** The application follows each outcome's real tradable book. The displayed probabilities remain complementary while execution switches to the selected outcome token.
+4. **Connect the evaluator wallet.** Show the wallet's Ethos score, earned tier, DreamDEX TestUSDC balance, current Event Contract exposure, and total available trading capacity.
+5. **Record the starting TestUSDC balance.** This makes the shared-collateral integration visible when the balance increases after borrowing.
+6. **Select Get trading capital.** The modal reads a live Ethos score authorization and chooses the highest tier the wallet qualifies for.
+7. **Authorize the score.** Submit the short-lived EIP-712 authorization to the selected `EthosTierGate`. The gate verifies the configured signer and records the wallet's authorization on-chain.
+8. **Post tBTC collateral.** Approve if required, then supply the amount calculated from the requested borrow, oracle price, and tier LLTV.
+9. **Borrow TestUSDC.** The service produces a fresh signed lender offer. Filling it on Covenant creates debt and transfers DreamDEX venue collateral to the trader wallet.
+10. **Verify the balance increase.** The borrowed TestUSDC appears in the same wallet balance the DreamDEX order ticket spends.
+11. **Place an Event Contract order.** Select YES or NO, choose Buy, size the order, and review limit price, total notional, payout if correct, and potential profit. Submit the IOC limit order through the official SDK.
+12. **Open Positions.** Show credit tier, debt, posted collateral, debt-capacity utilization, health, Event Contract mark value, average-cost PnL, recent fills, and any resting orders.
+13. **Demonstrate an exit.** A borrower can repay debt and withdraw collateral without a fresh reputation authorization. A settled DreamDEX winner can redeem outcome tokens for venue collateral.
+
+### What the Demo Proves
+
+| Demo moment | What it establishes |
+|---|---|
+| Markets load from the venue | DreamDEX is the product's live market source |
+| Book and tape update | The app consumes the SDK's event-sourced WebSocket tail |
+| Score selects a tier | Reputation affects transparent underwriting policy |
+| Borrow increases TestUSDC | Covenant credit and DreamDEX execution share one asset |
+| Order lands on DreamDEX | The borrowed capital has a direct venue use |
+| Portfolio joins debt and outcomes | The interface tracks the whole economic trade |
+| Repay/redeem remain available | Reputation gates new exposure, not user exits |
+
+No market, price, order, fill, position, or payout is fabricated. If a live
+dependency is unavailable, Covenant reports the unavailable state instead of
+substituting preview data.
+
+## Product Experience
+
+### Markets
+
+The Markets route is a trading work surface rather than a marketing landing
+page. It provides:
+
+- Active binary Event Contracts loaded from DreamDEX.
+- Search by question or underlying asset.
+- Asset filters derived from the venue's current inventory.
+- An ending-soon filter for contracts inside the final 24 hours.
+- Sorting by indexed volume, settlement time, or last probability.
+- Live YES/NO prices in cents and a visual probability split.
+- Volume and continuously updating time-to-settlement.
+- Connected-wallet capacity and open-position summaries.
+
+### Market Detail and Order Entry
+
+Each market page combines the information needed to form and execute a view:
+
+- Human-readable Event Contract question and interval.
+- Live on-chain lifecycle badge, independent of indexer lag.
+- The same oracle EMA used by the market's settlement process.
+- Strike price and distance between the live oracle and strike.
+- Complementary YES and NO probabilities.
+- Selected outcome's real bids, asks, spread, and depth.
+- Recent DreamDEX fills received from the live venue tail.
+- Buy and sell flows with wallet-bounded quick sizing.
+- Limit price, notional cost, winning payout, and potential profit preview.
+- Actual venue collateral balance and reputation-informed capacity.
+- Transaction result with Somnia explorer link.
+
+Orders are IOC limit orders in the prototype. A buy crosses the best ask and a
+sell hits the best bid. The app reads the market's authoritative on-chain status
+immediately before submission; only status `Trading (1)` is allowed to reach the
+wallet confirmation.
+
+### Trading Capital
+
+The capital modal presents protocol operations as a live checklist:
+
+| Step | User action | On-chain result |
+|---|---|---|
+| 1 | Authorize Ethos score | `EthosTierGate.authorize` records a short-lived wallet authorization |
+| 2 | Approve and post tBTC | Covenant custody receives collateral assigned to the selected tier market |
+| 3 | Fill lender offer | Covenant creates borrower debt and transfers DreamDEX TestUSDC to the wallet |
+
+Returning users do not repeat completed steps unnecessarily. The interface
+re-reads gate authorization, collateral, debt, wallet balances, and health after
+transactions and renders the remaining actions.
+
+### Unified Portfolio
+
+The Positions route is the closing screen of the product story. It combines:
+
+- Earned Ethos tier and maximum LTV.
+- Covenant debt and posted collateral.
+- Maximum debt and capacity utilization.
+- Current collateral health.
+- Repayment and collateral-withdrawal actions.
+- DreamDEX outcome balances by Event Contract.
+- Average cost, mark value, and unrealized PnL.
+- Resting order cancellation.
+- Recent indexed fills.
+- Settled positions with claimable payout.
+- Resolved and void-market redemption behavior.
+
+Settled markets disappear from DreamDEX's live inventory. Covenant therefore
+scans recent finalized markets and reads ERC-6909 balances directly so winning
+outcome tokens do not remain invisible and unclaimed.
 
 ## Architecture
 
-Covenant is four cooperating layers. Each layer talks to the one below through a narrow, view-only interface. That narrowness is the reason the system is safe to compose: a change in one layer cannot silently reach another.
+```text
+┌──────────────────────────────────────────────────────────────────────┐
+│ Covenant Markets — the trading application (live on Somnia testnet) │
+│ React · TypeScript · wagmi · viem · @somnia-chain/markets-sdk        │
+│ Market discovery · Up/Down execution · capital · unified portfolio  │
+└──────────────┬───────────────────────────────┬───────────────────────┘
+               │                               │
+      reads Ethos scores              market discovery · books
+      submits Up/Down orders          orders · portfolio · cancels
+               │                               │
+┌──────────────┴──────────────┐  ┌─────────────┴──────────────────────┐
+│ Ethos v2 API                │  │ DreamDEX Event Contracts           │
+│ Credibility score · level   │  │ On-chain limit order book          │
+└──────────────┬──────────────┘  │ ERC-6909 Up/Down outcomes          │
+               │                 │ Oracle resolution · redemption     │
+   score attestation             └─────────────┬──────────────────────┘
+               │                                │ borrowed tUSDC
+┌──────────────┴────────────────────────────────┴──────────────────────┐
+│ Covenant Credit Engine · EthosTierGate × 3 (Somnia deployment)       │
+│ Markets · positions · fills · collateral · fees · liquidation        │
+│ Signed score authorizations: wallet · chain · nonce · expiry bound   │
+│ Tier markets at 38.5% / 62.5% / 77% LLTV — gate IS the policy        │
+└──────────────────────────────────────────────────────────────────────┘
 
-```
-   ┌───────────────────────────────────────────────────────────────────────┐
-   │ 1. Frontend           React + wagmi SPA                               │
-   │                       Take-offer paste box, action tabs, positions   │
-   └──────────────────────────────┬────────────────────────────────────────┘
-                                  │ off-chain: read markets, submit txs
-   ┌──────────────────────────────┴────────────────────────────────────────┐
-   │ 2. Off-chain services   sign_offer.js (EIP-712 offer producer)        │
-   │                         cleanverse_client.py (Cooperate API client,   │
-   │                         AES-CBC, api-id header, fail-closed mirror)   │
-   └──────────────────────────────┬────────────────────────────────────────┘
-                                  │ signed offers, attestation writes
-   ┌──────────────────────────────┴────────────────────────────────────────┐
-   │ 3. Credit engine      src/Covenant.sol                                │
-   │                       fillOffer / repay / withdraw / seize            │
-   │                       + notary ratification (src/notaries/)           │
-   │                       + oracle price feed (src/oracles/)              │
-   │                       + market identity via keccak of every field    │
-   └───────────────┬──────────────────────────────────┬─────────────────────┘
-                   │ gate hooks (view, in-tx)         │ ERC-20 movements
-   ┌───────────────┴───────────────┐    ┌─────────────┴─────────────────────┐
-   │ 4a. Compliance gates          │    │ 4b. Compliance-aware token layer  │
-   │  src/compliance/              │    │  src/compliance/WrappedAToken.sol │
-   │    CleanversePoolGate  ← live │    │  1:1 wrap of any origin ERC-20    │
-   │    CovenantGate + Registry    │    │  transfers checked against pool   │
-   │    PermissiveGate (tests only)│    │  closes the flashLoan surface     │
-   └───────────────┬───────────────┘    └────────────────┬──────────────────┘
-                   │ staticcall (150k gas cap)           │ staticcall (same shape)
-                   └─────────────────┬───────────────────┘
-                                     ▼
-                     ┌───────────────────────────────┐
-                     │ Cleanverse compliance pool    │
-                     │ isRegistered / paused /       │
-                     │ verify(wallet)                │
-                     └───────────────────────────────┘
+The off-chain half: offchain/somnia-service.mjs reads Ethos live and signs
+short-lived score authorizations for every tier gate, and signs lender
+offers. The signer can only attest scores — it holds no funds, cannot move
+collateral, disable liquidation, or override the solvency check.
 ```
 
-**Layer responsibilities:**
+### Credit Engine
 
-- **Frontend (`frontend/`)** — a React SPA. Reads market state directly from `Covenant.toMarket(id)`; submits fills via `fillOffer` with a pasted offer JSON. No backend of our own — the marketplace is whatever channel the maker uses to publish signed offers.
-- **Off-chain services (`offchain/`)** — the offer producer and the Cleanverse API client. The client's `attestable` property is the exact mirror of the on-chain gate's fail-closed rule so the two halves can never disagree.
-- **Credit engine (`src/Covenant.sol`, `src/notaries/`, `src/oracles/`, `src/libraries/`)** — the fixed-maturity credit primitive. Market identity is the keccak of every field including gate addresses, so a market's compliance policy cannot be silently rebound after creation.
-- **Compliance surface (`src/compliance/`)** — split cleanly in two:
-  - **Gates** decide "may this account open a position?" — called from the engine on every increase in exposure.
-  - **`WrappedAToken`** decides "may this account receive these tokens?" — called from the token itself on every transfer. Using it as the loan token closes the `flashLoan` surface at the token layer.
+`src/Covenant.sol` implements a zero-coupon, fixed-maturity credit market:
 
-Both compliance sub-layers use the **same** `isRegistered → paused → verify` staticcall sequence with the **same** 150 000 gas cap and the **same** fail-closed rule, so an operator only has to reason about one policy shape.
+- Lenders buy credit units below or at face value.
+- Borrowers sell credit units and receive loan assets at execution.
+- Credit units redeem one-for-one for loan tokens, subject to protocol fees and socialized losses.
+- Interest is represented by the difference between execution price and face value.
+- Offers are signed off-chain and filled on-chain.
+- Collateral health is checked after debt-increasing execution.
 
-## Compliance layer
+The engine is not a utilization-based pool. Rates originate from lender and borrower offers, giving each loan a deterministic price and maturity.
 
-The project ships two gate implementations. They enforce the same market interface but connect to Cleanverse differently.
+### Market Identity
 
-### Path A — Direct pool gate (`CleanversePoolGate`)
-
-The recommended integration. The gate reads Cleanverse's on-chain compliance pool directly, inside the trade.
-
-```
-                        ┌──────────────────────────────┐
-   position change ───▶ │   Fixed-maturity credit      │
-   (lend/borrow/        │   engine                     │
-    seize)          └──────────────┬───────────────┘
-                                       │ gate hook (view, on-chain)
-                                       ▼
-                        ┌──────────────────────────────┐
-                        │   CleanversePoolGate         │
-                        │   staticcall, bounded gas    │
-                        │   fail-closed                │
-                        └──────────────┬───────────────┘
-                                       │ isRegistered / paused / verify
-                                       ▼
-                        ┌──────────────────────────────┐
-                        │   Cleanverse compliance pool │
-                        │   (Cleanverse-deployed)      │
-                        │   rules · A-Pass eligibility │
-                        └──────────────────────────────┘
-```
-
-The pool contract is what the Cleanverse API endpoint `POST /validator/verify` front-ends off-chain — the same on-chain view a compliance officer would call from the API is the one the gate calls inside the trade. There is no attester and no bridge; Cleanverse's own pool is the source of truth.
-
-### Path B — Attestation registry (`CovenantGate` + `CovenantRegistry`)
-
-An optional additional-policy layer, useful when Covenant needs to enforce per-action or Covenant-specific rules on top of Cleanverse eligibility, or when the target chain does not have a directly-callable Cleanverse pool contract.
-
-```
-   position change ───▶ credit engine ──▶ CovenantGate ──▶ CovenantRegistry
-                                                                 ▲
-                                             attester ───────────┘
-                                                 │
-                                                 └── HTTPS ── Cleanverse Cooperate API
-```
-
-Attesters are per-registry roles; they may only write attestations and set per-policy permits. They cannot move funds, alter markets, or grant themselves privileges. No personal data goes on-chain — only a hash commitment to the off-chain verification record, plus jurisdiction, validity window, and revocation state. Every write emits an event naming the attester and the source commitment, which is what makes the audit trail reconstructible.
-
-### Properties both paths preserve
-
-- **Gate calls are `view`.** They return a boolean the engine turns into a revert. Failure is interpreted, never propagated.
-- **Bounded gas per read.** A misbehaving remote cannot consume the whole trade's gas budget and convert a compliance denial into a market-wide DoS.
-- **Fail-closed.** Reverting reads, unreachable pools, and malformed data all deny. Unavailable verification is never treated as clearance.
-- **Only *increases* are gated.** Repay and withdraw remain open, so an outage or credential revocation cannot strand capital already committed to a position.
-- **Gate binds to market identity.** The gate address is part of the `Market` struct that hashes into the market id. A "compliant" market and an "open" market for the same asset are different markets with different ids — positions cannot leak between them, and a live market's compliance policy cannot be silently redirected by swapping the gate.
-
-## Function coverage
-
-Every state-changing function in the lending core, and whether the gate applies. Reviewed against `src/Covenant.sol`.
-
-### Position-mutating (user-facing)
-
-| Function | Creates exposure? | Gated? | Why |
-|---|---|---|---|
-| `fillOffer` | Yes — buyer credit ↑ and/or seller debt ↑ | **Yes**, only on the increasing side | `canIncreaseCredit(buyer)` fires iff `buyerCreditIncrease > 0`; `canIncreaseDebt(seller)` iff `sellerDebtIncrease > 0`. Reductions ungated. |
-| `seize` | Reduces borrower's debt/collateral | **Yes**, on `msg.sender` | `canLiquidate(msg.sender)` — the liquidator is the actor being screened, not the borrower. |
-| `withdraw` | No — burns credit for loan tokens (settlement) | No | Exit path. Gating would strand a lender who lost their credential after committing capital. |
-| `repay` | No — reduces debt | No | Exit path. Also permits a third party to repay on behalf of a compliant borrower whose credential has since been frozen. |
-| `supplyCollateral` | No — tops up collateral | No | Cannot become debt without going through the gated `fillOffer`. Supplying collateral to another's position is a donation, not exposure. |
-| `withdrawCollateral` | No — reduces collateral, healthiness enforced | No | Exit path. `isHealthy` prevents unsafe withdrawals; compliance is orthogonal. |
-
-### Non-position (infrastructure)
-
-| Function | Gated? | Rationale |
-|---|---|---|
-| `initMarket` | No | Permissionless market creation is safe because the gate addresses are part of the market id — a market with `entryGate = 0` is a **different** market than a Cleanverse-gated one. Positions cannot merge across market ids. |
-| `setConsumed` | No | Offer-cap bookkeeping; no position mutation. |
-| `setIsAuthorized` | No | Delegation only. The position holder is what `fillOffer` gates, not the caller — delegating to a non-compliant party cannot open a non-compliant position. |
-| `multicall` | No | Uses `delegatecall`, so inner calls run under the outer `msg.sender`. Each inner call is individually gated where the underlying function is. |
-| `updatePosition` | No | Fee accrual and bad-debt slashing; deterministic bookkeeping. |
-| Admin setters, `claimSettlementFee`, `claimContinuousFee` | No | Protocol governance, not user-facing. |
-
-### `flashLoan`: the one surface not gated at the market layer
-
-`flashLoan` lets anyone borrow arbitrary tokens from the Covenant contract's balance for a single transaction. That balance includes loan tokens supplied by lenders of compliant markets and collateral supplied by compliant borrowers. A non-compliant wallet can `flashLoan()` those tokens into a callback and use them within the same transaction — repay unrelated debt, sell on a DEX, manipulate an oracle — before returning them.
-
-This is not a bug I introduced or one that Covenant's compliance layer can close, because flash loans span markets. The `Market` struct has no `flashLoanGate` field, and the `flashLoan` selector is on the core contract itself. Two ways it stays defensible in the Cleanverse model:
-
-1. **Loan-token-layer enforcement (built and tested here).** Cleanverse's A-Token standard enforces compliance rules (country allow/deny, tier, group) at the token contract itself. This repo ships [`WrappedAToken`](src/compliance/WrappedAToken.sol), a 1:1 wrapper for any origin ERC-20 that consults the same `ICleanversePool` the market gate uses — with the same fail-closed, gas-bounded read shape — inside every inbound transfer. When a Covenant market's loan token is a `WrappedAToken`, `covenant.flashLoan([waUSDC], ..., callback)` reverts inside `safeTransfer(waUSDC, callback, amt)` with `RecipientNotCompliant(callback)` **before** the callback is invoked, whenever the callback wallet is not verified in the pool. This is proven mechanically in [`test/compliance/WrappedATokenFlashLoanTest.sol`](test/compliance/WrappedATokenFlashLoanTest.sol) against the same `MockCleanversePool` the gate uses. The market gate becomes belt-and-suspenders; the token is the belt.
-
-2. **Deployment topology.** An institution deploying Covenant for regulated markets can fork the core contract and either disable `flashLoan` entirely or add a global compliance gate to it. This is a governance choice, not something a compliance layer sitting *outside* the core can enforce.
-
-The gate coverage above is what the market layer protects; flash-loan behaviour is inherited from the underlying protocol, and this repo closes it at the token layer via `WrappedAToken`.
-
-### `WrappedAToken` — closing the flash-loan surface at the token layer
-
-The recommended deployment for a regulated Covenant market pairs the market gate (`CleanversePoolGate` or `CovenantGate`) with a `WrappedAToken` as the loan token. The wrapper is the on-chain analogue of Cleanverse's `POST /atoken/launch_wrapped_atoken`: it locks an origin token (e.g. native USDC) and mints wrapped units at 1:1, gating every inbound transfer against the bound compliance pool at the token layer.
-
-```
-   deposit(USDC) ─▶ WrappedAToken ─mint waUSDC─▶ verified recipient
-                        │                        (validator.complianceVerify(waUSDC, to) must hold)
-                        │
-   Covenant.flashLoan([waUSDC], amt, callback):
-     safeTransfer(waUSDC → callback)  ─▶ WrappedAToken._transfer
-                                             │
-                                             ├── isExempt(callback)?               no ─┐
-                                             ├── validator.isRegistered(waUSDC)?   yes │
-                                             │                                          ├─▶ validator.complianceVerify(waUSDC, callback)
-                                             └── any read fails?                   → revert RecipientNotCompliant
-```
-
-Design invariants (mirrored point-for-point with `CleanversePoolGate`, so token and gate cannot disagree):
-
-- **Immutable pool binding** — changing the compliance source requires a new token, and therefore a new market. Prevents a live loan asset being silently repointed at a laxer policy.
-- **Only inbound transfers are gated** — `withdraw` (burn-to-origin) is intentionally open, so a holder whose credential is later frozen can always reclaim their locked origin balance. This is the token-layer version of the engine's "gate increases, not exits" rule.
-- **Gas-bounded, fail-closed reads** — same `POOL_GAS_LIMIT = 150_000` staticcall shape as the gate. A misbehaving pool cannot DoS a transfer, and any failure resolves to `not eligible`.
-- **Minimal exempt set** — the token owner may register infrastructure addresses that need to route the wrapper as pass-through liquidity (the Covenant core itself, a bundler, a router). This is the on-chain analogue of Cleanverse's institutional deposit-address whitelist (`POST /atoken/whitelist/add`) and is deliberately narrow.
-
-To deploy the compliant loan token:
+A market is defined by its loan token, collateral configuration, maturity, recovery threshold, entry gate, and liquidation gate:
 
 ```solidity
-// 1. Deploy the wrapper against native USDC and your pool.
-WrappedAToken waUSDC = new WrappedAToken(
-    IERC20(NATIVE_USDC),
-    IAPassComplianceValidator(VALIDATOR),
-    OWNER_MULTISIG,
-    "Wrapped Access USDC",
-    "waUSDC",
-    6
-);
-
-// 2. Exempt protocol infrastructure that must hold the wrapper as routing state.
-waUSDC.setExempt(address(covenant), true);
-
-// 3. Create a Covenant market whose `loanToken` is the wrapper. The market gate can be
-//    CleanversePoolGate or CovenantGate — the wrapper composes with either.
-market.loanToken = address(waUSDC);
+struct Market {
+    address loanToken;
+    CollateralParams[] collateralParams;
+    uint256 maturity;
+    uint256 rcfThreshold;
+    address entryGate;
+    address seizureGate;
+}
 ```
 
-Every increase in exposure is now checked twice by design: once by the market gate on the position holder, once by the token on the transfer recipient. Every non-position transfer — including `flashLoan` — is still checked by the token.
+Its identifier commits to the complete market configuration, the Covenant deployment, and the original chain ID:
 
-### Receiver flows (loan tokens and collateral)
-
-`fillOffer`, `withdraw`, `withdrawCollateral`, and `seize` all accept a `receiver` parameter. The receiver is *not* gated. This is deliberate: compliance is enforced on **who holds the position**, not on where the position holder chooses to send redeemed tokens. A compliant borrower directing loan-token proceeds to a third-party wallet is analogous to a bank customer disbursing a loan into a third-party account — the borrower's own compliance obligations (e.g., Travel Rule reporting on their onward transfer) apply, and the market is not the enforcement point for that.
-
-## Core formulas
-
-Every constant and formula below is exercised by tests in this repo — see the referenced files.
-
-### 1. Market identity
-
-Two markets differing in a single parameter (including gate addresses) are provably distinct market ids. See `IdLib.toId`.
-
-```
-id = keccak256(
-        abi.encodePacked(
-            0xff,
-            covenantAddress,
-            chainId,
-            keccak256(abi.encodePacked(SSTORE2_PREFIX, abi.encode(market)))
-        )
-     )
+```text
+marketId = keccak256(covenant, chainId, encodedMarketConfiguration)
 ```
 
-### 2. Oracle scaling
+Changing an asset, oracle, maturity, collateral ratio, or gate creates a different market. Existing terms cannot be silently rebound to a new underwriting policy.
 
-Covenant's liquidation identity: `collateral_raw × price / ORACLE_PRICE_SCALE = value_in_loan_token_raw` with `ORACLE_PRICE_SCALE = 1e36`. An oracle wrapping a feed at `feedDecimals` for a `(collateralDecimals, loanDecimals)` pair emits:
+### Reputation Layer
 
-```
-price = feed_answer × 10^loanDecimals × ORACLE_PRICE_SCALE
-                    / (10^feedDecimals × 10^collateralDecimals)
+The engine exposes narrow policy hooks:
 
-SCALE = ORACLE_PRICE_SCALE × 10^loanDecimals
-                           / 10^(collateralDecimals + feedDecimals)   // precomputed
-```
-
-See `ChainlinkBtcUsdOracle.SCALE` and `testFuzz_priceIdentity`.
-
-### 3. Maximum debt from collateral (`isHealthy`)
-
-With `WAD = 1e18`, rounded down at each step:
-
-```
-maxDebt = Σ  collateral_i × price_i / ORACLE_PRICE_SCALE × lltv_i / WAD
+```solidity
+function canIncreaseCredit(address account) external view returns (bool);
+function canIncreaseDebt(address account) external view returns (bool);
+function canLiquidate(address account) external view returns (bool);
 ```
 
-Position is healthy iff `debt ≤ maxDebt`. See `Covenant.isHealthy`.
+`src/reputation/EthosTierGate.sol` implements these hooks today. An off-chain service reads a wallet's Ethos credibility score and returns a short-lived EIP-712 `ScoreAuthorization`; anyone may submit it to the gate, and once accepted the wallet may increase debt in the market until the authorization expires. Each authorization commits to:
 
-### 4. Bad-debt bound (liquidation floor)
+- Borrower wallet
+- Observed score
+- Expiration deadline
+- Unique nonce (replay protection)
+- Somnia chain id
+- The gate's own address (policy version — a different threshold is a different gate, and a different market id)
 
-Amount of debt unrecoverable even after seizing all collateral at maximum discount:
+The gate rejects expired, replayed, cross-chain, cross-contract, and wrong-signer authorizations. Missing or unavailable reputation data fails closed to the Open tier — never enhanced terms. The signer can only attest scores: it holds no funds, cannot alter thresholds or LLTVs, and cannot override the solvency check.
 
+### Credit Tiers
+
+The tier ladder uses a small number of understandable thresholds rather than an opaque borrower-specific formula, and each tier's LTV is one of the engine's allowed collateral tiers — the reputation bar and the collateral terms are one object:
+
+| Ethos score | Tier | Maximum LTV | 1 tBTC supports |
+|---:|---|---:|---:|
+| Below 1600 | Open | 38.5% | ~$41,600 of debt |
+| 1600–1999 | Established | 62.5% | ~$67,500 of debt |
+| 2000 and above | Reputable | 77.0% | ~$83,200 of debt |
+
+Reputable carries **2× the capital efficiency** of Open — earned by the credibility score rather than by posting more collateral. These thresholds and ratios are Covenant application policy, not recommendations or guarantees from Ethos.
+
+### DreamDEX Integration
+
+DreamDEX is the on-chain central limit order book on Somnia. Its **Event
+Contracts** are binary markets: each question has an Up and a Down side, both
+trading on one book, where a Down price is always `1 − Up`. Positions are ids in
+a shared **ERC-6909** outcome-token singleton rather than separate ERC-20
+deployments, and a complete set (1 Up + 1 Down) is always mintable from — and
+redeemable for — one unit of collateral.
+
+Covenant integrates with it at three levels.
+
+#### 1. Shared collateral — the integration thesis
+
+Covenant's loan token **is** the DreamDEX venue collateral
+(`0x70a86D8842FB63C4Ad2b7cdddF530eBf1BB25d8E`, 6dp tUSDC on Shannon). Borrowed
+capital is therefore immediately tradable on DreamDEX with no bridge, wrapper,
+or swap in between: a borrower draws credit against collateral and takes a
+position on an Event Contract in the same asset, in the next transaction.
+
+This is deliberately conventional on the risk side. Covenant lends *against*
+ordinary collateral so a position can be liquidated on a normal solvency test;
+it does not accept ERC-6909 outcome positions as collateral. Direct outcome-token
+collateral needs token-id-aware custody, pre-settlement valuation, liquidation
+liquidity, and void-market accounting — see [Roadmap](#roadmap).
+
+#### 2. Live venue tail — the read path
+
+The app holds **one** `SomniaMarkets` client for its lifetime
+(`frontend/src/config/dreamdex.ts`), published to the tree through
+`SomniaMarketsProvider`. The SDK's engine tier is event-sourced: a single
+WebSocket carries chain logs into a local store, and the `/react` hooks read
+that store synchronously. Order books, prices, and fills therefore update the
+moment a log lands — there is no refetch interval on the market data path.
+
+| Surface | Hook | Behaviour |
+|---|---|---|
+| Order book | `useLiveBinaryOrderBookByMarket` | 4-sided book materialized locally from order events |
+| Trade tape | `useLiveFills` | Fills as the socket sees them, newest first |
+| Underlying price | `useLivePrice` | The same EMA feed the market settles against |
+| Subscription | `useWatchMarket` | Ref-counted per pool; shared across components |
+| Connection state | `useLiveStatus` | Socket state and how far the store trails the chain head |
+
+Two details matter for correctness:
+
+- **Books are keyed by `marketId`, never by pool.** A `BinaryPool` is recycled
+  across expiry windows, so a pool-keyed read on a page left open would silently
+  begin rendering the *successor* market's orders. The by-market read returns an
+  empty book once a market is no longer the pool's current binding.
+- **Decimals are read per market**, from `quoteDecimals` / `baseDecimals`, not
+  assumed. Collateral is 6dp tUSDC on testnet and 18dp USDso on mainnet — a
+  10^12 difference that a hardcoded scale would turn into a silent mispricing.
+
+#### 3. Lifecycle-gated writes
+
+Every write reads the market's live on-chain status first and refuses to sign
+unless it is `Trading (1)`. The indexer trails the chain by seconds, so a market
+that just expired can still look active in a list; gating on the chain read means
+the wallet is never asked to confirm an order the pool has already stopped
+accepting.
+
+| Status | Value | Meaning |
+|---|---|---|
+| Listed | 0 | Deployed, not yet open |
+| **Trading** | **1** | The only state that accepts orders |
+| Locked | 2 | Window ended; no new orders, cancels still work |
+| Resolved | 4 | Winning side fixed; winners redeem at par |
+| Voided | 5 | Both sides redeem at 0.5 |
+
+Writes travel the same client the reads tail, so a fill lands in the live store
+over an already-open socket. Covered: IOC limit orders, cancellation,
+settlement redemption (including the void case, where each side pays 0.5), and
+the testnet collateral faucet.
+
+Settlement itself is permissionless — the oracle publishes and Somnia's on-chain
+reactivity triggers the `BinaryMarketsModule` callback. Because settled markets
+leave the live list, the app scans the finalized tail and reads outcome balances
+per market so winnings are never stranded unnoticed in the ERC-6909 singleton.
+
+#### SDK and API call map
+
+The table below maps visible product behavior to the concrete DreamDEX SDK path
+used by the application. This is also a navigation guide for reviewers who want
+to trace the integration in source.
+
+| Product behavior | SDK/API operation | Covenant implementation |
+|---|---|---|
+| Load active Event Contracts | `SomniaMarkets.loadMarkets(true)` and the exchange market registry | `useDreamDexMarkets` in `frontend/src/hooks/useDreamDex.ts` |
+| Read one binary market | `client.getBinaryMarket(marketId)` | `useDreamDexMarket` |
+| Subscribe to a market | `useWatchMarket(poolAddress)` | `useDreamDexBook`, `useDreamDexTape` |
+| Stream YES/NO book | `useLiveBinaryOrderBookByMarket(marketId, depth)` | `useDreamDexBook` |
+| Stream recent fills | `useLiveFills(poolAddress, limit)` | `useDreamDexTape` |
+| Stream settlement reference | `useLivePrice(asset)` | `useLivePrice` wrapper |
+| Expose venue-tail health | `useLiveStatus()` | `useVenueTail` |
+| Read authoritative lifecycle | `client.getMarketOnchain(marketId)` | `useMarketOnchain` and the pre-submit guard |
+| Place order | `exchange.createOrder(symbol, "limit", side, amount, price, { timeInForce: "IOC" })` | `useDreamDexTrader.placeOrder` |
+| Cancel resting order | `client.createTrader({ walletClient }).cancelOrder(...)` | `useDreamDexTrader.cancelOrder` |
+| Read wallet portfolio | `client.getPortfolio(address)` | `useDreamDexPortfolio` |
+| Read positions and PnL | `client.getOpenPositionsWithPnL(address)` | `useDreamDexPositions` |
+| Find settled claims | `client.listBinaryMarkets({ status: "Finalized" })` plus outcome-balance reads | `useSettledClaimables` |
+| Redeem outcomes | `client.createTrader({ walletClient }).redeem(...)` | `useDreamDexTrader.redeemOutcome` |
+| Drip test collateral | `client.createTrader({ walletClient }).faucet()` | `useDreamDexTrader.faucet` |
+
+#### Shared client lifecycle
+
+`frontend/src/config/dreamdex.ts` creates one `SomniaMarkets` object for the
+application lifetime. `frontend/src/main.tsx` exposes its engine client through
+`SomniaMarketsProvider`, while write helpers reuse the exchange wrapper after
+binding the connected wagmi wallet client.
+
+This design is deliberate:
+
+- One WebSocket serves all mounted market-data components.
+- Multiple components watching one pool share the SDK's ref-counted subscription.
+- The indexer snapshot and live chain tail hydrate one local store.
+- A transaction submitted by the app returns through the already-open event tail.
+- Route changes do not create and discard venue clients.
+- Disconnecting a wallet does not tear down public market reads.
+
+Creating a new SDK client inside each React query would turn the live system into
+repeated snapshots, increase socket churn, and create inconsistent books across
+components. The singleton is therefore a correctness decision, not only a
+performance optimization.
+
+#### Binary outcome accounting
+
+DreamDEX stores outcome positions in a shared ERC-6909 token contract. Covenant
+keeps the outcome token model visible in its accounting while presenting familiar
+YES/NO language to users:
+
+- Outcome index `0` is YES/UP.
+- Outcome index `1` is NO/DOWN.
+- YES and NO probabilities are complementary.
+- A winning resolved outcome redeems at one unit of quote collateral.
+- In a void market, each side redeems at `0.5`.
+- A complete YES + NO pair remains collateral-equivalent at par.
+
+The UI never assumes that a selected NO order is merely a visual inverse. It
+switches to the NO tradable and its executable side of the SDK-derived book.
+
+#### Decimal and price safety
+
+Price and balance scaling are read from venue or market metadata wherever
+available. This matters because the test venue uses 6-decimal TestUSDC while
+other deployments may use 18-decimal collateral. The application uses:
+
+- `quoteDecimals` for prices, quote volume, costs, marks, and payouts.
+- `baseDecimals` for Event Contract quantities.
+- ERC-20 `decimals()` for the connected wallet's venue-collateral balance.
+- Raw integer values for transaction arguments.
+- Human-readable decimal values only at the interface boundary.
+
+Hardcoding an 18-decimal scale would misprice the Shannon venue by a factor of
+one trillion. The per-market conversion in `useDreamDexBook` prevents that class
+of silent error.
+
+#### DreamDEX failure behavior
+
+| Failure | User-visible behavior | Safety property |
+|---|---|---|
+| Indexer unavailable | Markets page reports that live registry data is unavailable | No fabricated market inventory |
+| WebSocket hydrating | Book identifies the non-live state while snapshot and tail join | No false “streaming” claim |
+| Indexer trails expiry | Pre-submit on-chain status read blocks the order | Wallet is not asked to sign an already-invalid order |
+| Wrong wallet network | Interface offers a switch to Somnia Shannon | No write is sent to an unintended chain |
+| Insufficient TestUSDC | Ticket blocks oversized buy and points to faucet or smaller size | No predictably reverting transaction |
+| Insufficient outcome tokens | Sell sizing is bounded by the selected holding | No unsupported close size |
+| Settled market leaves live list | Finalized-tail scan finds held outcome balances | Winnings are not hidden from the portfolio |
+
+#### DreamDEX contract addresses
+
+Identical on Shannon testnet (50312) and mainnet (5031) — deployed with CREATE3.
+All are proxies: implementations upgrade while addresses stay stable.
+
+| Contract | Address |
+|---|---|
+| `BinaryMarketsModule` | `0x3ecC694Cef705358864a646142ac17A90E29e388` |
+| `MarketsCore` | `0x2802504314685D89bF6C992CA5a8e7cC78bc0294` |
+| `BinarySettlement` | `0xbF4a49e0Dfd092e5FBE8E5761064C49533e6Ed23` |
+| `OutcomeToken6909` | `0xB52c5934113Af5c0Bb20eb3C72290C8215f755b9` |
+| `OracleHub` | `0xe40db387cC98601Dd11bd634fF2f3AD5686dE32b` |
+| `CollateralRouter` | `0xbC0C9834B15ACE38bB50dDaa7d7f7C7CC4DC183C` |
+
+Market and pool addresses are per-window and recycled — always resolve them from
+the module registry, never hardcode them.
+
+#### Automated trading against Covenant credit
+
+Covenant's credit layer is venue-native, so anything that trades DreamDEX can
+trade on borrowed capital: the loan token is already the venue collateral, and a
+tier gate authorizes the *wallet*, not a session. A bot funded by a Covenant
+position needs no Covenant-specific integration — it points at DreamDEX as usual.
+
+- **[DreamDEX Bot Kit](https://github.com/somnia-chain/dreamdex-bot-kit)** —
+  strategy framework with a shared client (TypeScript and Python), a backtester,
+  and reference strategies. The `ec-*` variants target binary Up/Down Event
+  Contracts specifically. Note that `placeTakerOrderWithoutVault` is obsolete;
+  current code uses a single `payable` `placeOrder` that pulls funds from the
+  wallet.
+- **[DreamDEX Bot Builder](https://dreambot-builder.vercel.app/)** — scaffolds a
+  bot without cloning the kit by hand.
+- **[`telegram-bot/`](telegram-bot/README.md)** — Covenant's Telegram control
+  plane, built from the Bot Kit's Event Contract safety patterns. Public users
+  can inspect markets, books, Ethos scores, capacity and positions, then preview
+  an order and open Covenant to sign it. Server-side execution is off by default,
+  allowlisted, capped, and uses only a dedicated testnet bot wallet.
+- **[Event Contracts documentation](https://docs.dreamdex.io/developers/event-contracts)**
+  — the protocol reference: market structure and lifecycle, recipes, and the
+  addresses above.
+
+Bot Kit dry-runs default to `DRY_RUN=true`; keep it there until a strategy is
+proven on Shannon. Covenant is unaudited testnet software and the Bot Kit is
+explicitly educational reference code — neither is production-ready.
+
+## Protocol Mechanics
+
+### Offers
+
+An `Offer` is an EIP-712 signed quote containing:
+
+- Complete market configuration
+- Buy or sell side
+- Maker and optional receiver
+- Start and expiry times
+- Price tick
+- Consumption group
+- Notary and authorization data
+- Maximum units or assets
+- Reduce-only behavior
+
+Publishing offers is free. Gas is paid only when a counterparty fills an offer on-chain. Offer discovery remains an off-chain concern so marketplaces and trading agents can compete without changing the settlement contract.
+
+### Collateral Health
+
+For activated collateral assets, Covenant calculates maximum supported debt as:
+
+```text
+maxDebt = sum(collateralAmount[i] * oraclePrice[i] * LLTV[i])
 ```
-badDebt = max(0, debt − Σ collateral_i × price_i / ORACLE_PRICE_SCALE × WAD / maxLif_i)
+
+With the protocol's fixed-point scales made explicit:
+
+```text
+maxDebt = sum(
+  collateralAmount[i]
+  * oraclePrice[i] / ORACLE_PRICE_SCALE
+  * LLTV[i] / WAD
+)
 ```
 
-See `Covenant.seize`.
+A borrower is healthy when:
 
-### 5. Continuous fee reservation
-
-When new credit opens at time `t` in a market maturing at `T`:
-
-```
-buyerPendingFeeIncrease   = buyerCreditIncrease × continuousFee × (T − t) / WAD
-
-sellerPendingFeeDecrease  = sellerPendingFee × sellerCreditDecrease / sellerCredit
+```text
+debt <= maxDebt
 ```
 
-The rate is locked in at issuance. See `Covenant.fillOffer`.
+Collateral and oracle parameters are immutable components of the market identity.
 
-### 6. Compliance gate (Cleanverse pool path)
+### Access Policy
 
-For a market with `entryGate != address(0)`, a position increase requires:
+Policy checks apply only when exposure increases:
 
+| Action | Policy check |
+|---|---|
+| Increase lender credit | `canIncreaseCredit` |
+| Increase borrower debt | `canIncreaseDebt` |
+| Liquidate a borrower | `canLiquidate` |
+| Repay debt | None |
+| Redeem lender credit | None |
+| Supply collateral | None |
+| Withdraw collateral | Solvency check only |
+
+Repayment and redemption remain available when reputation data is stale, a score falls, or an authorization expires. A reputation change may prevent new borrowing but does not, by itself, liquidate an otherwise solvent position.
+
+### Settlement and Losses
+
+- Borrower debt is repaid in credit units at face value.
+- Repaid loan tokens become withdrawable by lenders.
+- Lender credit is adjusted for continuous fees and realized market losses.
+- Unrecoverable debt is reflected through a market loss factor.
+- Liquidations repay debt in exchange for collateral under the market's configured incentive limits.
+
+For a detailed derivation of protocol arithmetic, see [`docs/CoreMath.md`](./docs/CoreMath.md).
+
+## Trust Model
+
+Covenant minimizes, but does not eliminate, trust.
+
+### On-Chain Guarantees
+
+- Market configuration is immutable and content-addressed.
+- Score-gated markets cannot substitute a different gate without becoming a new market.
+- Offers are authenticated by the configured notary.
+- Collateral health is enforced by the lending engine.
+- Position exits do not depend on reputation service availability.
+- Score authorizations are intended to be wallet-, chain-, contract-, nonce-, and expiry-bound.
+
+### Trusted Components
+
+- Price-oracle correctness and availability
+- The service that reads Ethos and signs score authorizations
+- Ethos API availability, profile resolution, and score methodology
+- Deployment administrators and configured protocol roles
+- Off-chain offer publication and discovery infrastructure
+
+The score signer will be able to grant only bounded access to preconfigured markets. It will not be able to move funds, modify collateral parameters, disable liquidation, or override the core solvency check.
+
+### Ethos Limitations
+
+Ethos credibility is a mutable reputation signal. It may change as reviews, vouches, attestations, slashing events, account relationships, and score methodology evolve. It is not proof that a borrower will repay.
+
+Covenant therefore follows these principles:
+
+- Never grant unsecured credit solely from an Ethos score.
+- Bind every score decision to the borrowing wallet.
+- Use short-lived authorizations for new exposure.
+- Treat pending or unavailable score calculations conservatively.
+- Version underwriting policy independently of the source score.
+- Never liquidate a collateralized position solely because reputation declines.
+
+## Security
+
+### Current Status
+
+- The contracts have **not** received a completed independent audit.
+- The repository is intended for testnet development and evaluation only.
+- Known accounting, callback, oracle-availability, and post-maturity edge cases are represented by proof-of-concept tests and require remediation before any production deployment.
+- Passing exploit-reproduction tests do not indicate that the underlying issue is fixed.
+- No contract in this repository should be treated as production-ready.
+
+### Security Priorities
+
+Before a public deployment, the project must complete:
+
+1. Remediation and regression testing for all known proof-of-concept findings.
+2. Invariant and stateful fuzz testing across fills, callbacks, repayment, redemption, and liquidation.
+3. Independent review of the lending engine and score-authorization boundary.
+4. Oracle failure, staleness, and manipulation analysis.
+5. Signer compromise, rotation, replay, and policy-version testing.
+6. Conservative asset, market, and global debt ceilings.
+7. Emergency response and pause procedures that do not strand exits.
+
+To report a vulnerability, contact the maintainers privately rather than opening a public issue containing exploit details.
+
+## Repository Structure
+
+| Path | Description |
+|---|---|
+| `src/Covenant.sol` | Core fixed-maturity lending engine |
+| `src/reputation/` | `EthosTierGate` — signed score authorizations bound to tier markets |
+| `src/interfaces/` | Market, gate, oracle, callback, token, and notary interfaces |
+| `src/libraries/` | Market identity, ticks, arithmetic, transfers, constants, and events |
+| `src/notaries/` | EIP-712 offer authorization |
+| `src/oracles/` | Price-oracle implementations |
+| `src/periphery/` | Bundled actions, authorization helpers, and credit-ladder views |
+| `src/compliance/` | Legacy policy adapters superseded by the reputation layer |
+| `test/reputation/` | Tier-gate unit tests and the end-to-end credit-flow rehearsal |
+| `script/DeploySomnia.s.sol` | One-command Somnia deployment of the credit layer |
+| `deployments/` | Deployment manifests (template + runbook) |
+| `offchain/somnia-service.mjs` | Ethos score authorizations + lender offer signing |
+| `test/` | Foundry unit, fuzz, integration, regression, and proof-of-concept tests |
+| `frontend/` | Covenant Markets — the trading application |
+| `docs/` | Protocol mathematics and supporting documentation |
+
+## Technology
+
+### Smart Contracts
+
+- Solidity
+- Foundry
+- EIP-712 signed offers
+- CREATE2 and bytecode-backed immutable market storage
+- ERC-20 loan and collateral assets
+
+### Application
+
+- React 18, TypeScript, Vite
+- wagmi / viem / RainbowKit — Somnia testnet (`somniaShannon`, chain 50312)
+- `@somnia-chain/markets-sdk` **0.28.1** — one shared client for the app's
+  lifetime, providing live order books, the trade tape, price feed, portfolio
+  reads, and order placement
+- `@somnia-chain/markets-sdk/react` — `SomniaMarketsProvider` and the WebSocket
+  tail hooks that back every market-data surface
+- TanStack Query — wallet- and indexer-scoped reads only; market data is
+  streamed, not polled
+- Ethos v2 REST API for credibility scores
+
+> The SDK floor is **0.28.0**. Earlier versions carry indexer-compatibility and
+> price-tick-grid bugs.
+
+### Integrations
+
+| Integration | What Covenant uses it for | Status |
+|---|---|---|
+| Somnia Shannon (chain 50312) | Settlement layer for both the credit engine and the venue | Live |
+| DreamDEX Event Contracts | Binary markets that borrowed capital trades on | Live |
+| `@somnia-chain/markets-sdk` | Live book/tape/price tail, lifecycle-gated writes | Live |
+| Ethos v2 API | Credibility score behind the credit tier | Live (see [Ethos Limitations](#ethos-limitations)) |
+| DreamDEX Bot Kit | Telegram market/book/capacity interface and guarded Event Contract execution | Integrated in [`telegram-bot/`](telegram-bot/README.md), dry-run by default |
+
+## Development
+
+### Prerequisites
+
+- [Foundry](https://book.getfoundry.sh/getting-started/installation), including `forge`, `cast`, and `anvil`
+- Node.js 20 or later and npm
+- A browser wallet compatible with RainbowKit/wagmi
+- A small amount of Somnia testnet STT for interactive transactions
+- Git submodules initialized for `forge-std`
+
+The frontend can browse public DreamDEX data without private keys. Executing
+orders requires a connected wallet. Running the reputation/offer service requires
+two service keys, and deploying a fresh credit layer requires a funded deployer
+key.
+
+### Clone and Initialize
+
+```bash
+git clone <repository-url>
+cd Covenant
+git submodule update --init --recursive
 ```
-validator.isRegistered(address(gate)) == true
-  ∧ validator.complianceVerify(address(gate), participant) == true
-                                    // pause is folded into complianceVerify per CCP V2
+
+Install JavaScript dependencies for both runtime packages:
+
+```bash
+npm install --prefix frontend
+npm install --prefix offchain
 ```
 
-Every read is a gas-bounded `staticcall`; any failure resolves to "not eligible" (fail-closed). Only *increases* are gated — repay and withdraw stay open. See `CleanversePoolGate._eligible`.
-
-### 7. Compliance mode (deployment-level enforcement)
-
-When `Covenant` is deployed with `REQUIRE_COMPLIANCE = true`:
-
-```
-initMarket(market) succeeds only if:
-    market.entryGate   ≠ 0
-  ∧ market.seizureGate ≠ 0
-  ∧ isApprovedGate[market.entryGate]
-  ∧ isApprovedGate[market.seizureGate]
-```
-
-Structurally impossible to hold a non-gated market on this deployment. See `Covenant.initMarket` and `test/compliance/ComplianceModeTest.t.sol`.
-
-## The credit ladder
-
-A single gate answers *yes or no*. A ladder of gates answers *on what terms*.
-
-An A-Pass carries a sub-tier, not just a validity bit. Because a gate's address is hashed into the market id (formula 1), a market that offers 91.5% LLTV is cryptographically bound to the gate that requires sub-tier 30 — the leverage and the credential requirement are **one object**. Nobody can offer institutional terms to a wallet that clears a retail bar, because doing so would be a different market with a different id.
-
-| Rung | Who clears it | Min sub-tier | LLTV | Collateral for a $100k borrow |
-|------|---------------|-------------|------|-------------------------------|
-| Institutional | Bank-verified entity holding a full-tier CVI credential | 30 | 91.5% | ≈ $109k |
-| Verified professional | Verified individual at an elevated CVI sub-tier | 20 | 77.0% | ≈ $130k |
-| Verified retail | Any wallet holding a valid A-Pass | 10 | 38.5% | ≈ $260k |
-
-That spread is the point. The institutional rung needs **2.4× less** collateral than the retail one for the same loan, and the credential is the only thing that closes the gap — which makes verification worth something beyond mere access.
-
-`CreditLadderLens` (`src/periphery/CreditLadderLens.sol`) resolves a wallet against every rung in a single `eth_call`, re-deriving each rung's gate, LLTV, and oracle from its market id via `ICovenant.toMarket`. The frontend's `/ladder` route renders that response directly.
-
-Deploy with `script/DeployLadder.s.sol` followed by `script/DeployLadderLens.s.sol`.
-
-## Roadmap
-
-Everything below is unbuilt. Today the gate answers one question — **is this wallet's holder eligible?** Each item below extends that answer, and is stated as: the Cleanverse call it consumes, the on-chain write that carries the verdict, and what observably changes for a market.
-
-Covenant consumes one corner of Cleanverse: `/api/cooperate`, which issues A-Pass credentials and evaluates compliance pools. The wider gateway also exposes document and liveness verification, sanctions and jurisdiction datasets, wallet risk scoring, and KYB/LEI lookup. `CovenantRegistry`'s docstring already names those as the reason it exists.
-
-| # | Cleanverse call | Carried on-chain by | Market-visible effect |
-|---|---|---|---|
-| 1 | `document/recognize`, `document/liveness-check` | nothing — runs before `generate_apass` | the country tag driving every pool rule stops being self-declared |
-| 2 | `datasource/{ofacSDN,unConsolidated,fatfRiskJurisdiction,baselAMLRanking}` | `validator/set_rule` — Cleanverse's own on-chain write | Path A markets re-price jurisdiction with no Covenant deployment |
-| 3 | `address/register_address`, `address/retrieve_address_risk` | `CovenantRegistry.revoke(account, reason)` | tainted provenance denies further exposure increases |
-| 4 | `business/companies`, `/detail`, `/lei`, `/people` | `CovenantRegistry.attest(...)` committing to an LEI | the institutional rung gets an entity credential, not a personal one |
-| 5 | credential-state push (existence unconfirmed) | `CovenantRegistry.revoke` | shortens Path B revocation latency; Path A already immediate |
-| 6 | none | new engine function | an open position can change hands, gated at transfer |
-
-**One prerequisite gates items 1–4.** Everything the client speaks to today is relative to `/api/cooperate`. All four items live on the *bare* gateway (`/api/address`, `/api/datasource`, `/api/business`, `/api/document`) — a different base path, and the cached OpenAPI spec (`offchain/spec/cleanverse-openapi-v3.json`, 148 paths) contains no `/api/cooperate` route at all, so the two surfaces are documented separately and may authenticate separately. Before any of this is scheduled, confirm with Cleanverse that the same `api-id` authorises the wider gateway; the spec declares `security: None` and an empty `securitySchemes`, so it cannot be read off the document. Three further consequences for `offchain/cleanverse_client.py`: it needs dual-base support, these endpoints take **query-string** parameters rather than the encrypted JSON bodies `/api/cooperate` uses, and every response is typed as a bare `object`, so shapes must be pinned against UAT rather than generated. Treat the spec as advisory — one parameter name in it is visibly corrupted by a paste.
-
-### 1. Document and liveness verification at issuance
-
-- **Integration.** `POST /api/document/recognize` (`docType`, `frontImagePath`, `backImagePath`) parses an identity document; `POST /api/document/liveness-check` (`video_path`, `image_path`) binds it to a live person. Both run inside `_handle_generate_apass` *before* `generate_apass`, and their output supplies `fullName`, `idType`, and `issuingCountryISO2` instead of the request body.
-- **Gap it closes.** Those three fields are free text today. `frontend/src/pages/Compliance.tsx` collects them from text inputs and validates only that the name is two characters and the country matches `/^[A-Z]{2}$/`; `offchain/server.py` forwards them verbatim into `identityDataList`. The country tag that every pool country rule is evaluated against is whatever the user typed.
-- **On-chain footprint.** None. No contract changes, no gate changes, no new market ids — the trust boundary moves inside the issuance handler.
-- **Why first.** Item 2's jurisdiction rules are worth little while the jurisdiction is self-asserted, and this is the smallest diff on the list. Unresolved mechanic: both routes take a *path*, and the spec has no upload route, so where images are stored is the one question to settle with Cleanverse before starting.
-
-### 2. Sanctions and jurisdiction datasets as generated pool rules
-
-- **Integration.** A scheduled job reads `GET /api/datasource/ofacSDN` and `/unConsolidated` (no parameters) plus `/fatfRiskJurisdiction` and `/baselAMLRanking` (both take a `cache` flag, which is what makes them cheap to poll), diffs them against the pool's current rule list from `validator/rules`, and writes the difference back through `POST /validator/set_rule`. The `countries` and `is_black_list` fields of the rule built by `CleanverseClient.build_rule` are the only ones this touches.
-- **Gap it closes.** Pool country lists are hand-maintained. FATF revises its grey and black lists at each plenary — roughly three times a year — and a hand-maintained list is wrong for as long as it takes someone to notice.
-- **On-chain footprint.** Nothing Covenant deploys. `set_rule` is one of the mutating Cooperate endpoints that writes on-chain — the client's own error table carries `12026 ONCHAIN_WRITE_FAILED` — so a regenerated rule is visible to every Path A market at the next block, since `CleanversePoolGate` reads `complianceVerify` live inside the transaction. Path B markets are unaffected; their jurisdiction lives in `Identity.jurisdiction` and moves via `attest`.
-- **Second use for the same feed.** A higher-risk jurisdiction does not have to mean denial. Each ladder rung is a separate market bound to a separate gate and therefore a separate pool with its own `countries` list, so Basel's ranking can drop a jurisdiction out of the institutional rung's list while leaving it in the retail rung's — three `set_rule` writes expressing "less leverage", rather than one global block list expressing "no". Pricing risk instead of refusing it is what the 2.4× rung spread exists to do.
-
-### 3. Wallet risk scoring — provenance as a gate input
-
-- **Integration.** An attester registers each cleared wallet with `POST /api/address/register_address` (`address` as a query parameter) and polls `POST /api/address/retrieve_address_risk`. A score crossing the institution's threshold invokes `CovenantRegistry.revoke(account, reason)`, already `onlyAttester`, already terminal, already emitting the reason — the write fits an existing hook.
-- **Gap it closes.** `complianceVerify` answers *who holds this wallet*, not *where its funds came from*. A wallet with a live A-Pass funded from a mixer passes the pool check today, and tainted provenance is a reportable event for an institution regardless of how well-identified the counterparty is.
-- **On-chain footprint.** One new `revoke` call per flagged account — no engine changes, no new market ids, no re-deployment. The one design note is that `revoke` is terminal per credential id, so a score that recovers re-enters through `attest` with a fresh credential.
-- **Why it is a registry item, not a Cleanverse-side one.** Verdicts here are institutional policy — which score is too high is the bank's call, not the vendor's — so the write lands in `CovenantRegistry` via an attester, not in a pool rule via `set_rule`.
-
-### 4. Entity identity — KYB, LEI, and the institutional rung
-
-- **Integration.** A second issuance flow for legal persons: `POST /api/business/companies` (with `isoCode`, `companyRegistrationNumber`, `companyName`) resolves a registered entity, `/companies/detail` (`companyId`) returns it, `/companies/lei` (`bic`/`lei`/`isin`) attaches its Legal Entity Identifier, and `/companies/people` (`uen`, `personName`, `role`) screens beneficial owners. The resulting `CovenantRegistry.attest` commits to the LEI rather than to a natural-person document.
-- **Gap it closes.** The largest gap between what the README claims and what the code does. A-Pass as issued today is a natural-person credential — `generate_apass` builds `identityDataList` from `idType`, `fullName`, and `issuingCountryISO2`, and there is no entity path. But the institutional rung is *"bank-verified entity holding a full-tier CVI credential"* and the target user is a bank or an RWA issuer — entities, which cannot hold a passport.
-- **On-chain footprint.** `attest` only — one call per entity, `Identity.credentialId` as the LEI commitment, `jurisdiction` as the entity's home country. No new gate logic; the rung already keys on `min_sub_tier`, and this item is about *which credential* the entity holds, not how it is scored.
-- **The item's one open question.** Whether the entity attestation reuses `credentialId` (smaller change, honest as a commitment to an off-chain record of unspecified shape) or `Identity` grows an entity discriminator. Leaning toward the former.
-
-### 5. Push-driven credential state — closing Path B's revocation window
-
-- **The latency is Path B's only.** A Cleanverse-side freeze via `POST /update_status` is an on-chain write, and `CleanversePoolGate` calls `complianceVerify` inside the transaction, so a frozen A-Pass denies on Path A markets at the next block with no Covenant action at all. On Path B, a registry attestation stays live until an attester polls `query_apass` and calls `revoke` — the exposure window is exactly the poll interval, and it applies only to registry-gated markets and to risk scores (item 3), which the pool cannot hold.
-- **Integration, if a channel exists.** Unconfirmed, and the lowest-confidence item here. The spec's `/notification/*` routes are inbound receivers for Cleanverse's own upstream providers (`sumsub_webhook`, `transak_webhook`, `alchemypay_*`), not a partner-facing subscription. Worth one question to Cleanverse.
-- **Fallback that needs no answer.** Tighten the `query_apass` and `retrieve_address_risk` poll interval, and prefer a `CleanversePoolGate` market wherever the institution's policy is expressible as a pool rule — the immediacy is a property of Path A, not something to be engineered into Path B.
-
-### 6. Secondary transfer of positions
-
-- **Integration.** None — this is the one item that needs no new Cleanverse surface. Transfer re-runs the market's existing `entryGate` against the recipient: `canIncreaseCredit` for a lender position, `canIncreaseDebt` for a borrower position, through whichever gate the market id already hashes.
-- **Gap it closes.** Design choice 1 accepts "no secondary market" as the cost of fixed-maturity credit. That is right for a first version and wrong in the long run: institutions expect to exit a term position, and a market whose only exits are maturity and liquidation prices that illiquidity into the rate.
-- **Why it is the strongest demonstration of the thesis.** The moment a position moves, an off-chain KYC check that cleared the original holder is describing the wrong person — there is no point in the flow where a database gate could re-run. A gate hook read inside the transfer is not a cleaner implementation of the same idea; it is the only implementation.
-- **Why it is last.** It is the only item that changes the credit engine rather than the compliance layer, and it touches market identity: because the gate address is hashed into the market id, the governing policy must follow the position's market, not the holder's history. Repayment and withdrawal stay ungated after transfer, per design choice 4 — a recipient who later loses their credential must still be able to settle.
-
-### Deliberately out of scope
-
-Cleanverse also exposes fiat on/off ramps, bank-account verification, card and QR payment rails, and custody and trading via Amber. These are adjacent to the product but not to the thesis. Two carve-outs:
-
-- **`bankAccount/identity_match`** — matches a bank-account holder against KYC identity (`accessToken`, `emailAddress`, `legalName`, `phoneNumber`). It is a fiat-side Travel Rule input, so it is the one ramp-adjacent endpoint that could earn its way in alongside item 4.
-- **Amber's `swap/price` and `swap/orders`** — could route liquidation proceeds. Useful for the collateral side, but it puts a centralised venue inside the liquidation path, and that is an architectural concession rather than an integration detail. Stated here so the trade-off is visible instead of absorbed quietly.
-
-Building a matching engine, an identity schema, or a licensed entity remains out of scope for the reasons given in [Design choices](#design-choices) and [Positioning](#positioning).
-
-## Deployment
-
-### Live addresses — Monad Testnet
-
-Chain id `10143` · RPC `https://testnet-rpc.monad.xyz` · explorer [testnet.monadexplorer.com](https://testnet.monadexplorer.com)
-
-The frontend reads every one of these from `frontend/src/config/chain.ts`, which is the single source of truth for the deployment. If this table and that file ever disagree, **the file is right** — swap the chain there and the whole app follows.
-
-| Contract | Address | Role |
-|----------|---------|------|
-| `Covenant` | `0xcdc06aae7617c3b6f44cc1f2a9a7163252d8a797` | The engine. Holds every market, position, and offer fill. |
-| `CleanversePoolGate` | `0xd49faa5d2d18b0ad04ef01093d2c2ef24ea8ad2c` | Covenant's gate. Holds the rule list, answers the engine's one boolean question. |
-| CVI Compliance Validator | `0xaC7e5179C2C7f03f209136886c172eb34F161792` | Cleanverse's validator (CCP V2). CREATE2-deployed to the same address on every chain they support. |
-| `BtcUsdOracle` | `0x2E09f0566A87Bb27615873aBCF18855d37b000F9` | Owner-push price feed. `STALENESS = 0`, so a pushed price does not expire. |
-| `EcrecoverNotary` | `0xc35B4e48940D68Dd449d19D3657e754632CC873C` | Validates the EIP-712 signature on an off-chain offer at fill time. |
-| `CreditLadderLens` | `0x4c18A570290FD0c7f4615ac24e5a42a72Ec2413D` | Resolves a wallet against all three ladder rungs in one call. |
-
-Test tokens (mintable, no value): **tUSDC** `0x7dbe32f1e1d3db45123f60ec5a79312863a7e279` (6 dec, loan token) · **tWBTC** `0x088b748e05b85af8ad2ee3c538a517f3eb1ce2ad` (8 dec, collateral).
-
-Ladder gates: institutional `0xC8035E7672e31a552f16FFeaB60d5f115Bd90451` · professional `0x51545c4f0A789BF7BA499CFD1Ac786D9E11d874d` · retail `0xB50A199cd20dfdaDFA5383eDB04b1B06474714d5`.
-
-**Current registration state.** All three ladder gates are deployed and whitelisted on the engine, but have not yet completed Cleanverse registration. Until they do, each gate's rule list is empty and it denies *every* account — including one holding a valid A-Pass. A wallet reading as ineligible on the ladder right now is a statement about the deployment, not a verdict on the credential. The primary `tWBTC / tUSDC` market (id `0xb6f6…8e7c`) is registered and fills normally.
-
-`PermissiveGate` (`src/compliance/PermissiveGate.sol`) returns `true` for every hook. It exists so the engine's non-compliance behaviour can be tested in isolation and so a market can be exercised end-to-end without a live pool. It is **not** part of the Monad deployment, and because gate addresses are part of the market id, a permissive market and a compliant market are different markets with no shared state.
-
-### Cleanverse integration status
-
-Verified against the UAT gateway, `https://uatapi.cleanverse.com/api/cooperate`. The three endpoints marked ★ correspond one-to-one with the three `staticcall` reads `CleanversePoolGate._eligible` performs on-chain — the off-chain client and the on-chain gate ask the pool the same questions in the same order:
-
-| Capability | Endpoint | On-chain equivalent | Status |
-|-----------|----------|---------------------|--------|
-| Authentication (`api-id` header) | — | — | Working — `code: "0000"` |
-| ★ Pool registration check | `POST /validator/is_register` | `validator.isRegistered(pool)` | Working |
-| ★ Pool pause state | `POST /validator/is_paused` | (folded into `complianceVerify`) | Working — no separate on-chain call |
-| ★ User eligibility | `POST /validator/verify` | `validator.complianceVerify(pool, user)` | Reachable; returns `12027` until the wallet holds an A-Pass |
-| Pool rules incl. country allow/deny | `POST /validator/rules` | (informational; enforced inside `verify`) | Working |
-| A-Pass lookup | `POST /query_apass` | — | Implemented, not yet exercised |
-| A-Pass issue / freeze | `POST /generate_apass`, `/update_status` | — | Implemented (AES), not yet exercised |
-| Wrapped A-Token issuance | `POST /atoken/launch_wrapped_atoken` | `WrappedAToken` deploy | On-chain wrapper shipped; API-side issuance not yet wired |
-| Institutional deposit whitelist | `POST /atoken/whitelist/add` | `WrappedAToken.setExempt(account, true)` | On-chain equivalent shipped |
-
-Integration details the client handles, each of which is easy to get wrong:
-
-- **Base path is `/api/cooperate`.** The bare host serves an unrelated older API; requests there succeed with the wrong semantics rather than failing loudly.
-- **Only `api-id` is transmitted.** The api-key is an AES key used locally and must never be sent. Putting it in a header would hand an attacker the ability to forge encrypted request bodies.
-- **Mutating endpoints require AES/CBC/PKCS5 with a fixed 16-zero-byte IV**, keyed by the base64-decoded api-key, sent as `{"data": "<base64 ciphertext>"}`.
-- **Success is `code == "0000"`, a string.** HTTP 200 is returned for business failures too, so the HTTP status alone tells you nothing.
-- **`valid: false` is a compliance verdict, not an error** — it must not be retried as one.
-- **Cloudflare fronts the gateway** and bans the default `Python-urllib` user-agent with error 1010.
-- **Infrastructure errors arrive as JSON.** A Cloudflare 403 parses into an envelope-shaped object; treating it as a business response would silently report a blocked request as an ineligible wallet. The client rejects any response lacking a `code` field and preserves the cause.
-
-Unavailable verification is never treated as clearance. The client's `attestable` property mirrors the gate's fail-closed rule so the off-chain and on-chain halves cannot disagree.
-
-### Repository layout
-
-| Path | Contents |
-|------|----------|
-| `src/Covenant.sol` | The fixed-maturity credit engine — markets, positions, fills, settlement |
-| `src/compliance/` | `CleanversePoolGate`, `CovenantGate`, `CovenantRegistry`, `WrappedAToken`, `PermissiveGate` |
-| `src/interfaces/` | Engine, gate, notary, oracle, and callback interfaces |
-| `src/libraries/` | `IdLib` (market identity), `TickLib`, `ConstantsLib`, `EventsLib`, `SafeTransferLib`, `UtilsLib` |
-| `src/notaries/` | `EcrecoverNotary` — EIP-712 offer ratification |
-| `src/oracles/` | `BtcUsdOracle` (owner-push), `ChainlinkBtcUsdOracle` |
-| `src/periphery/` | `CovenantBundles`, `CreditLadderLens`, `EcrecoverAuthorizer`, and amount helpers |
-| `test/` | Foundry suites — `compliance/`, `oracles/`, `erc20s/`, `helpers/`, `frontend/` |
-| `script/` | Deployment scripts, one per contract, plus `CreateMarket` and `DeployLadder` |
-| `offchain/` | Cleanverse API client, EIP-712 offer signer, offer book builder, cached OpenAPI spec |
-| `frontend/` | React + wagmi SPA and the in-app documentation |
-| `docs/` | [`CoreMath.md`](./docs/CoreMath.md) — the full derivation behind the formulas above |
-
-## Getting started
-
-### Contracts
-
-Build and test with [Foundry](https://book.getfoundry.sh/getting-started/installation):
+### Build Contracts
 
 ```bash
 forge build
+```
+
+The default Foundry profile enables the optimizer, IR compilation, and Cancun
+EVM output. Somnia Shannon supports the transient-storage behavior required by
+the core. A deployment compiled for an older EVM target is not equivalent to the
+tested configuration.
+
+### Run Contract Tests
+
+```bash
 forge test
 ```
 
-Run only the compliance layer's tests:
+At the time of this README update, the complete local suite reports:
 
-```bash
-forge test --match-path "test/compliance/*" -vvv
+```text
+524 tests passed
+0 tests failed
+0 tests skipped
 ```
 
-Deploy (scripts are one-per-contract, in dependency order):
+This count includes tests that reproduce known security findings, and the 20-test reputation suite (`test/reputation/`) that rehearses the full tier-gated credit flow end-to-end: score authorization → collateral → borrow → health → repay → withdraw, plus ladder, gating, and expiry semantics. Review the [Security](#security) section before interpreting the result as a readiness signal.
+
+Useful focused commands and what they cover:
 
 ```bash
-forge script script/DeployCovenant.s.sol --rpc-url $RPC_URL --broadcast
-forge script script/DeployCleanverseGate.s.sol --rpc-url $RPC_URL --broadcast
-forge script script/CreateMarket.s.sol --rpc-url $RPC_URL --broadcast
+# EIP-712 score authorization, replay, expiry, threshold, and domain binding
+forge test --match-contract EthosTierGateTest -vvv
+
+# Complete collateralized credit journey and tier economics
+forge test --match-contract EthosCreditFlowTest -vvv
+
+# General borrow/lend/repay protocol flow
+forge test --match-contract ProtocolFlowTest -vvv
+
+# Core compilation
+forge build
 ```
 
-### Frontend
+`forge build` currently completes with existing advisory lint notes. Running
+`forge lint` as a standalone command depends on the installed Foundry release;
+the repository's lint exclusion list includes `block-timestamp`, which some
+versions do not recognize as a configurable lint ID.
+
+> [!CAUTION]
+> Some tests intentionally reproduce known security findings. A passing
+> proof-of-concept test can mean that the vulnerable behavior was reproduced,
+> not that it was remediated. Read [Security](#security) before treating the test
+> count as a production-readiness statement.
+
+### Run the Frontend
 
 ```bash
 cd frontend
-npm install
-npm run dev        # Vite dev server
-npm run build      # tsc -b && vite build
-npm run preview    # serve the production build locally
+npm run dev
 ```
 
-Point it at a different deployment by editing `frontend/src/config/chain.ts` — nothing else in the app hardcodes an address.
+Vite serves the application at `http://localhost:5173`. Public DreamDEX reads
+work with the built-in Shannon configuration. The following optional variables
+override public defaults:
 
-### Off-chain services
+| Variable | Default | Purpose |
+|---|---|---|
+| `VITE_DREAMDEX_INDEXER_URL` | `https://dev.smk.somnia.host/v1/graphql` | DreamDEX GraphQL indexer |
+| `VITE_DREAMDEX_WS_RPC_URL` | `wss://api.infra.testnet.somnia.network/ws` | WebSocket chain tail used by the SDK |
+| `VITE_CREDIT_SERVICE_URL` | `http://localhost:3001` | Covenant score-authorization and offer service |
+| `VITE_WALLETCONNECT_PROJECT_ID` | empty | Optional WalletConnect Cloud project id for mobile QR/deep-links; browser wallets do not require it |
 
-The Cleanverse API is authenticated per-application. Configure credentials via environment variables — never commit them:
+Create a production build with:
 
 ```bash
-cp .env.example .env
+npm run build
 ```
 
-Populate `.env` with your Cleanverse application ID and API key. `.env` is gitignored; only `.env.example` is tracked.
+The current production build completes successfully. The frontend does not yet have an automated browser-test suite.
+
+The application keeps configuration responsibilities explicit:
+
+- `frontend/src/config/chain.ts` — chain (Somnia testnet, chain 50312), explorer, and the DreamDEX venue collateral address (resolved from the SDK's deployment manifest)
+- `frontend/src/config/dreamdex.ts` — indexer and WebSocket endpoints, Ethos API, and the tier policy (`ETHOS_TIERS`)
+- `frontend/src/config/credit.ts` — deployed Covenant addresses, immutable tier markets, maturity, token metadata, and service URL
+- `deployments/somnia-testnet.json` — machine-readable source manifest for the credit service
+
+### Run the Credit Service
+
+The service is the narrow off-chain authority behind reputation-gated borrowing.
+It reads the deployment manifest at startup and refuses to run if required fields
+or keys are missing.
+
+```bash
+export SCORE_SIGNER_KEY=0x...
+export LENDER_KEY=0x...
+export MANIFEST=../deployments/somnia-testnet.json
+export PORT=3001
+npm --prefix offchain install
+node offchain/somnia-service.mjs
+```
+
+Check startup and manifest wiring before opening the frontend:
+
+```bash
+curl http://localhost:3001/api/health
+```
+
+#### Service API
+
+| Method and path | Inputs | Result |
+|---|---|---|
+| `GET /api/health` | None | Chain, signer, lender, and configured tier summary |
+| `GET /api/ethos-score` | `address=0x...` | Live score, selected tier, and one signed authorization per gate |
+| `GET /api/offer` | `market=open|established|reputable`, `units=<raw>` | Fresh lender `Offer`, EIP-712 notary proof, maker, market ID, and expiry |
+
+Score authorizations expire after 30 minutes. They commit to wallet, observed
+score, deadline, nonce, chain ID, and the gate's EIP-712 domain. An Ethos API
+failure is converted to score `0` and can therefore grant only Open-tier terms.
+
+The service does not:
+
+- Hold borrower funds.
+- Submit transactions for users.
+- Change market thresholds or collateral ratios.
+- Override Covenant's health check.
+- Disable liquidation or block repayment.
+- Sign for a gate whose signer was not configured at deployment.
+
+#### Lender Preparation
+
+The wallet behind `LENDER_KEY` must hold DreamDEX TestUSDC, approve the Covenant
+core to pull that token during fills, and authorize the deployed
+`EcrecoverNotary`. For a fresh deployment, execute these calls from the lender
+wallet before requesting offers:
+
+```bash
+export RPC_URL=https://api.infra.testnet.somnia.network
+export COVENANT=0x...
+export NOTARY=0x...
+export DREAMDEX_COLLATERAL=0x70a86D8842FB63C4Ad2b7cdddF530eBf1BB25d8E
+export LENDER_KEY=0x...
+export LENDER_ADDRESS=0x...
+
+cast send "$DREAMDEX_COLLATERAL" \
+  "approve(address,uint256)" "$COVENANT" \
+  0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff \
+  --private-key "$LENDER_KEY" --rpc-url "$RPC_URL"
+
+cast send "$COVENANT" \
+  "setIsAuthorized(address,bool,address)" "$NOTARY" true "$LENDER_ADDRESS" \
+  --private-key "$LENDER_KEY" --rpc-url "$RPC_URL"
+```
+
+The lender signs offers off-chain and spends gas only when performing setup or
+other on-chain account management. The borrower submits and pays for the fill.
+
+### Deploy the Credit Layer to Somnia
+
+The full credit layer — core, notary, three Ethos tier gates, tBTC collateral, oracle, and three tier markets — is one script. Prerequisites:
+
+1. A deployer key with STT for gas (the public faucet is Discord-gated): `faucet.somnia.network`
+2. A score-signer key for the reputation service (any fresh key — its address, not the key, goes on-chain)
+3. A lender key with venue tUSDC to lend into the tier markets (drip it from the DreamDEX faucet through the app)
+
+```bash
+export PRIVATE_KEY=0x...                   # funded Somnia deployer
+export SCORE_SIGNER_ADDRESS=0x...          # public address only, never the key
+export DREAMDEX_COLLATERAL=0x70a86D8842FB63C4Ad2b7cdddF530eBf1BB25d8E
+export BTC_USD_RAW_PRICE=10800000000000     # $108,000 with 8 feed decimals
+export MATURITY=1803859200                  # 2027-03-01 00:00:00 UTC
+
+forge script script/DeploySomnia.s.sol \
+  --rpc-url https://api.infra.testnet.somnia.network --broadcast
+```
+
+The script deploys and configures:
+
+1. Permissionlessly mintable 8-decimal test tBTC.
+2. A BTC/USD oracle seeded from `BTC_USD_RAW_PRICE`.
+3. The Covenant core in required-compliance mode.
+4. The EIP-712 `EcrecoverNotary`.
+5. Open, Established, and Reputable `EthosTierGate` contracts.
+6. Three immutable credit markets at 38.5%, 62.5%, and 77% LLTV.
+
+The script prints every address, `maxLif`, and market ID. Copy the output into
+`deployments/somnia-testnet.json` using
+`deployments/somnia-testnet.template.json`, then mirror the values in
+`frontend/src/config/credit.ts`. `CREDIT_DEPLOYED` evaluates to true only when
+all required addresses and market IDs are non-null.
+
+After deployment:
+
+1. Confirm the score key derives to `SCORE_SIGNER_ADDRESS`.
+2. Fund the lender with DreamDEX TestUSDC.
+3. Complete the lender approval and notary authorization above.
+4. Start `offchain/somnia-service.mjs` with the matching keys and manifest.
+5. Point `VITE_CREDIT_SERVICE_URL` at that service for non-local frontend deployments.
+6. Run a small authorization, collateral deposit, borrow, repayment, and withdrawal before publishing addresses.
+
+The full flow is rehearsed in `test/reputation/EthosCreditFlow.t.sol`, which deploys the identical configuration locally and walks a trader through authorization, borrowing, and exit.
+
+### Offer Tooling
 
 ```bash
 cd offchain
-npm install                          # ethers, for the signing tools
-node sign_offer.js                   # produce a signed EIP-712 offer
-node build_offer_book.js             # assemble an offer book from signed offers
-node preflight_offers.js             # dry-run offers against the engine before publishing
-
-pip install -r requirements.txt      # Cleanverse client dependencies
-python server.py                     # local attester / verification endpoint
-python -m pytest test_endpoints.py   # exercise the Cooperate API integration
+npm install
+node sign_offer.js
+node build_offer_book.js
 ```
 
-The signing flow is documented in [`offchain/SIGNING.md`](./offchain/SIGNING.md).
+The EIP-712 signing flow is documented in [`offchain/SIGNING.md`](./offchain/SIGNING.md).
 
-## Design choices
+### Configuration
 
-Every load-bearing decision in Covenant, with the trade-off it makes. Each item is a design choice, not an implementation detail — none of these can be flipped without changing what the product *is*.
+For the current DreamDEX prototype, the
+relevant variables are:
 
-### 1. Fixed-maturity credit, not variable-rate
+```bash
+# Fresh deployment
+PRIVATE_KEY=0x...
+SCORE_SIGNER_ADDRESS=0x...
+DREAMDEX_COLLATERAL=0x70a86D8842FB63C4Ad2b7cdddF530eBf1BB25d8E
+BTC_USD_RAW_PRICE=10800000000000
+MATURITY=1803859200
 
-- **Choice.** Every market has a hard maturity timestamp. Rates are locked at issuance; there is no utilization curve, no `apy` recomputation.
-- **Why.** Institutions cannot underwrite variable-rate exposure on their balance sheet without daily mark-to-market machinery. A fixed-term note is a first-class asset class they already know how to book.
-- **Trade-off.** No secondary market for open positions in this repo — positions settle at maturity or via `seize`. That's the point: variable-rate lending is already a solved problem for retail, and it isn't what regulated capital wants.
+# Credit service
+SCORE_SIGNER_KEY=0x...
+LENDER_KEY=0x...
+MANIFEST=../deployments/somnia-testnet.json
+PORT=3001
 
-### 2. Offers signed off-chain, filled on-chain
+# Optional frontend overrides
+VITE_DREAMDEX_INDEXER_URL=https://dev.smk.somnia.host/v1/graphql
+VITE_DREAMDEX_WS_RPC_URL=wss://api.infra.testnet.somnia.network/ws
+VITE_CREDIT_SERVICE_URL=http://localhost:3001
+```
 
-- **Choice.** A lender or borrower signs an EIP-712 `Offer` struct with a notary-verified signature; the counterparty calls `fillOffer` on-chain, passing the offer plus its signature.
-- **Why.** Publishing 1,000 offers costs zero gas. A lender pays only when a trade actually happens. Marketplaces stay pluggable: any channel that can serve a signed JSON blob works.
-- **Trade-off.** Offer discovery is an off-chain concern. Covenant does not ship a matching engine — that's a marketplace's job.
+Never commit private keys, API credentials, or signer secrets. The frontend
+contains no service private key. Public network endpoints and deployment
+addresses are expected to be visible; signing authority is not.
 
-### 3. Gate hooks are `view` predicates, not `revert`-ing external calls
+## Deployment
 
-- **Choice.** `IEnterGate.canIncreaseCredit(account) returns (bool)`. Any failure inside the gate resolves to `false`; the engine surfaces the market's own domain error (`LenderIneligible` / `BorrowerIneligible`), never an opaque revert from compliance infrastructure.
-- **Why.** A compliance provider must not be able to brick a market by reverting. The gate is a *question*, not a *guard*.
-- **Trade-off.** The gate cannot enforce structured errors of its own; every negative answer looks the same. Acceptable — the market layer is the right place for the domain error.
+The trading application runs entirely against public Somnia testnet infrastructure — the DreamDEX indexer, the Somnia RPC, and the Ethos API. The credit layer is deployed and verified:
 
-### 4. Only *increases* in exposure are gated
+**Somnia testnet (Shannon) — chain 50312 · [explorer](https://shannon-explorer.somnia.network) · manifest: [`deployments/somnia-testnet.json`](./deployments/somnia-testnet.json)**
 
-- **Choice.** `canIncreaseCredit`, `canIncreaseDebt`, `canLiquidate` fire on new lending, new borrowing, and liquidation. `repay`, `withdraw`, `withdrawCollateral` are ungated.
-- **Why.** Compliance revocation must never strand committed capital. A borrower whose passport is frozen must still be able to repay; a lender with a lapsed credential must still be able to redeem at maturity.
-- **Trade-off.** A wallet that becomes non-compliant can still hold an open position — this is correct behaviour, not a hole.
+| Contract | Address | Role |
+|---|---|---|
+| Covenant core | `0xA11c466cbebB86f865e2Ccea5F0f273b078E30C7` | Fixed-maturity lending engine (compliance mode) |
+| EcrecoverNotary | `0x82E4C657aaE87151243AE439eC8c33210AE30415` | EIP-712 offer verification |
+| TestBTC (tBTC) | `0xCb4f3F36C723C186AbaA3DE6Ec2A04F3656e77eD` | Collateral (permissionless mint) |
+| BtcUsdOracle | `0xADbE706FF8c80850457D0A91f19cd79A5C9098E0` | BTC/USD, seeded at $108,000 |
+| EthosTierGate · Open | `0xEE6fF9E8FD639E15d9a077c2aceF0e8Ba16A4844` | Any scored wallet → 38.5% LLTV |
+| EthosTierGate · Established | `0xC0E6a382e9F761c793F6714fC427e93e26520161` | Score ≥ 1600 → 62.5% LLTV |
+| EthosTierGate · Reputable | `0x0f596034793EDDDd3a6c32C00c4BbF780E31868D` | Score ≥ 2000 → 77.0% LLTV |
+| Loan token | `0x70a86D8842FB63C4Ad2b7cdddF530eBf1BB25d8E` | DreamDEX venue collateral (tUSDC) |
 
-### 5. Gate hooks are per-account, not per-pair
+The deployed score signer is
+`0xaAb51184CA096F8ea48331a4262E689AAc4B5787`. This is a public verification
+address, not a secret. The corresponding private key belongs only in the credit
+service environment.
 
-- **Choice.** `canIncreaseCredit(buyer)` and `canIncreaseDebt(seller)` are two independent calls; neither can observe the counterparty.
-- **Why.** Per-account policy is what identity, jurisdiction, sanctions, and asset-eligibility rules actually enforce. FATF R.16 Travel Rule counterparty matching is pair-shaped, but that check happens off-chain at pre-clearance time in the real institutional workflow.
-- **Trade-off.** Pairwise on-chain checks are not enforceable at the gate layer. If we ever need them, they belong in the notary path (which already sees both sides via the offer struct).
+### Deployed Tier Markets
 
-### 6. Gate address is part of the market's identity
+All values below come from
+[`deployments/somnia-testnet.json`](./deployments/somnia-testnet.json). LLTV and
+`maxLif` values are represented on-chain as 18-decimal fixed-point integers.
 
-- **Choice.** `id = keccak(gate, seizureGate, loanToken, collateralParams, maturity, rcfThreshold, covenant, chainId)`. Change any gate address and you get a new market id.
-- **Why.** A market's compliance policy cannot be silently retrofitted or swapped mid-life. A "compliant" market and an "open" market on the same loan token are provably different markets, and positions cannot leak between them.
-- **Trade-off.** Migrating to a new gate implementation creates a new market — no in-place upgrade. This is a feature: audit trails cannot be rewritten.
+| Tier | Minimum score | LLTV | Gate | Market ID |
+|---|---:|---:|---|---|
+| Open | 0 | 38.5% | `0xEE6fF9E8FD639E15d9a077c2aceF0e8Ba16A4844` | `0xbc1f231da78029b2a891e8c7d80c765224f45697d2bf2a2ee7e7ecb00f3df1ae` |
+| Established | 1600 | 62.5% | `0xC0E6a382e9F761c793F6714fC427e93e26520161` | `0x987fb3b208df8942d4adb5dfc2639ce997e8d1f1ed29ba41370db429c405149f` |
+| Reputable | 2000 | 77.0% | `0x0f596034793EDDDd3a6c32C00c4BbF780E31868D` | `0xef116848e2da8cb6553350b02f8670c00a04629f765295797d38baf7cc787046` |
 
-### 7. Every external read is a bounded-gas staticcall
+Every market uses:
 
-- **Choice.** Both the gate and the wrapped-A-token forward `VALIDATOR_GAS_LIMIT = 150_000` per read and treat every failure (revert, malformed data, gas exhaustion, no code) as `false`.
-- **Why.** Without a gas cap, a griefing validator could consume all remaining gas and force the enclosing trade to revert for lack of gas — converting a per-account compliance denial into a market-wide denial-of-service.
-- **Trade-off.** A rich validator that needs > 150k gas per read would need us to raise the cap. This is deliberate: a compliance answer should be cheap; if it isn't, the interface is wrong.
+- Loan token: DreamDEX TestUSDC.
+- Collateral token: deployed test tBTC.
+- Oracle: deployed BTC/USD oracle.
+- Recovery threshold: `0`.
+- Entry and seizure gate: the tier's `EthosTierGate`.
+- Fixed maturity: Unix `1803859200`, or `2027-03-01 00:00:00 UTC`.
 
-### 8. Fail-closed, always
+### Source-of-Truth Rules
 
-- **Choice.** Any read failure resolves to *not eligible*. Unavailable verification is never treated as clearance.
-- **Why.** The alternative (fail-open) means a compromised or unreachable validator quietly grants everyone access. The blast radius of a false negative (a legitimate user's trade reverts) is bounded and self-healing; a false positive (a sanctioned actor slips through) is a compliance breach.
-- **Trade-off.** During a Cleanverse outage, new positions cannot open on gated markets. Existing positions remain settleable. This is the correct availability posture for a compliance product.
+Deployment values exist in two locations because the Node service reads JSON
+while the browser imports typed TypeScript:
 
-### 9. Compliance runs at two layers, not one
+1. `deployments/somnia-testnet.json` is the machine-readable service manifest.
+2. `frontend/src/config/credit.ts` is the frontend's typed deployment constant.
 
-- **Choice.** The gate answers "may this account open a position?" (per-market); `WrappedAToken` answers "may this account receive these tokens?" (per-transfer, at the token contract). Both use the *same* validator, the *same* staticcall shape, the *same* gas cap, the *same* fail-closed rule.
-- **Why.** The gate cannot close the `flashLoan` surface — flash loans live on the Covenant core and span markets. Moving the check to the token layer closes it: a non-compliant flash-loan callback reverts inside `safeTransfer` before it runs. The gate becomes belt-and-suspenders; the token is the belt.
-- **Trade-off.** Two contracts to keep aligned. The alignment is mechanical: both call `IAPassComplianceValidator.complianceVerify(address(this), account)`.
+They must be updated together after any redeployment. DreamDEX core addresses
+and venue collateral are not copied from this Covenant manifest; they are sourced
+from the official SDK deployment manifest in `frontend/src/config/chain.ts` and
+`frontend/src/config/dreamdex.ts`.
 
-### 10. `WrappedAToken` is a first-party contract, not an off-the-shelf Cleanverse A-Token
+### Live-Deployment Limitations
 
-- **Choice.** We ship our own compliance-aware ERC-20 wrapper instead of consuming Cleanverse's `POST /atoken/launch_wrapped_atoken` output.
-- **Why.** The wrapper needs to be provably fail-closed and gas-bounded — properties this repo tests exhaustively — and needs to expose a documented exempt set for protocol infrastructure (the Covenant core, bundlers). We know exactly what our wrapper does; we don't have to trust an off-the-shelf issuance to have the same properties.
-- **Trade-off.** We're now the maintainer of a compliance-aware token contract. Its footprint is 260 lines and its behaviour is under formal invariants — acceptable.
+- All assets are testnet assets with no monetary value.
+- The tBTC collateral and BTC/USD oracle are prototype components.
+- The oracle is owner-pushed and was deployed with staleness disabled for the demo.
+- The credit markets have a fixed maturity and do not roll automatically.
+- Lender liquidity is supplied by the configured demo lender rather than an open liquidity marketplace.
+- The contracts are unaudited and include known security issues documented in this repository.
+- The DreamDEX protocol contracts are external upgradeable proxies; Covenant does not control their implementations.
 
-### 11. Withdraw path on `WrappedAToken` is intentionally ungated
+## Roadmap
 
-- **Choice.** `withdraw(assets, receiver)` releases the origin token without a compliance check. Same rule as the engine's ungated exits.
-- **Why.** A holder whose credential is later frozen must be able to reclaim their locked origin balance. Otherwise credential revocation confiscates assets, which no regulator would sign off on.
-- **Trade-off.** In principle a frozen wallet can burn `waUSDC` for `USDC`. That's fine: the freeze applies to *new* activity, not to unwinding existing holdings.
+### Hackathon Milestone
 
-### 12. CCP V2 (`IAPassComplianceValidator`), not custom compliance
+- [x] Somnia-native trading application: live DreamDEX discovery, Up/Down execution, unified portfolio
+- [x] Ethos qualification with live score reads and transparent tier policy
+- [x] `EthosTierGate` — on-chain score verification with expiry, nonce, wallet, and chain binding
+- [x] Tier-gated credit markets at 38.5% / 62.5% / 77% LLTV, rehearsed end-to-end in tests
+- [x] Credit service: score authorizations from live Ethos reads + lender offer signing
+- [x] One-command Somnia deployment script + runbook
+- [x] Deep DreamDEX integration: live oracle price feed, on-chain status gating, volume telemetry, settled-market redemption scan
+- [x] Deploy to Somnia testnet and publish verified addresses
+- [ ] Resolve or isolate known high-impact protocol findings
+- [ ] Reproducible demo video
 
-- **Choice.** The gate reads Cleanverse's on-chain validator with the exact selectors from the CCP V2 integration guide (`isRegistered(pool)`, `complianceVerify(pool, user)`, `RuleV2` struct).
-- **Why.** Building a bespoke identity schema means becoming an identity provider — out of scope. Reading a standardized validator means Cleanverse can evolve rules server-side (new countries, new tiers) without any redeploy on our side.
-- **Trade-off.** We're bound to Cleanverse's rule shape. This is exactly right — the whole product thesis is that compliance should be the identity provider's job, not the lending protocol's.
+### Post-Hackathon
 
-### 13. `CovenantRegistry` as an escape hatch (Path B)
+- Decentralize or replace the score signer with a verifiable oracle mechanism.
+- Add lender-defined reputation policies and portfolio-level exposure limits.
+- Introduce robust market indexing and offer discovery.
+- Add simulation, monitoring, analytics, and automated liquidation infrastructure.
+- Research ERC-6909 outcome-position collateral adapters.
+- Explore constrained credit for autonomous Event Contract trading agents.
+- Complete an independent security audit before any production deployment.
 
-- **Choice.** In addition to reading Cleanverse directly (Path A), the repo ships an attestation registry (Path B) where authorised attesters project Cleanverse verdicts on-chain. `CovenantGate` reads this registry via the same fail-closed shape.
-- **Why.** Not every target chain has a Cleanverse validator deployed yet. Path B unblocks deployments on those chains while preserving the fail-closed / staticcall / immutable-per-market properties. It also lets Covenant layer *additional* per-action policy on top of Cleanverse's verdict.
-- **Trade-off.** Path B introduces attesters as a trusted role. Their scope is narrow — write attestations only, cannot move funds, cannot alter markets — but it is trust nonetheless. Prefer Path A wherever possible.
+## Design Principles
 
-### 14. Single-contract mode registration, not factory mode
-
-- **Choice.** Each `CleanversePoolGate` is registered with the validator individually via `POST /api/cooperate/validator/register` (CCP V2 §5), not through a factory holding `REGISTER_ROLE`.
-- **Why.** A gate binds to one compliance profile. If you want two profiles, deploy two gates and two markets. Factory mode is the right shape for a DEX with hundreds of pools; single-contract mode is the right shape for a lending protocol whose markets are deliberately few.
-- **Trade-off.** One-time API call per gate deployment, and a gate denies every account until that call lands. The three credit-ladder gates are in exactly that state today — see [Deployment](#deployment).
-
-### 15. Deterministic market storage via `SSTORE2`
-
-- **Choice.** Market parameters are stored as bytecode at a deterministic CREATE2 address, and the market id hashes that bytecode. Reads never touch storage slots — they decode from the market code.
-- **Why.** Storing the full `Market` struct in storage would cost O(n_collaterals) SLOADs per position update. Encoding it as bytecode makes market reads a single CODECOPY and keeps position operations cheap.
-- **Trade-off.** Market parameters are immutable. This is the intended semantics — an "editable" market is a different market.
-
-## Positioning
-
-Covenant is infrastructure, not a licensed financial institution. It does not custody assets, issue tokens, or act as counterparty to any loan. Institutions using Covenant markets remain the regulated actors; Covenant supplies the rails and the enforcement layer that make those markets viable for them.
+1. **Collateral first.** Reputation improves terms but does not replace economic security.
+2. **Explicit maturity.** Every credit market has a known settlement horizon.
+3. **Immutable policy.** Underwriting requirements are part of market identity.
+4. **Open exits.** Reputation failures cannot block repayment or redemption.
+5. **Fail conservatively.** Missing or invalid score data grants no enhanced access.
+6. **Bounded trust.** Off-chain signers cannot override on-chain solvency limits.
+7. **Honest status.** Planned integrations are not presented as completed features.
+8. **Focused scope.** The first product funds Event Contract trading; it does not attempt unsecured consumer credit.
 
 ## Documentation
 
-- [Core pool math and invariants](./docs/CoreMath.md) — the full derivation behind the formulas above, including what the contracts deliberately do *not* enforce
-- [Off-chain signing flow](./offchain/SIGNING.md) — producing and validating an EIP-712 offer
-- [Business plan](./business_plan.pdf)
-- The running interface at [`frontend/`](#frontend) carries its own documentation section (`/docs`) covering the same ground with live addresses read from the deployment
-- [Cleanverse API documentation](https://docs.cleanverse.com/) · [CCP V2 integration guide (PDF)](https://cleanverse.com/)
+- [`docs/CoreMath.md`](./docs/CoreMath.md): protocol arithmetic and invariants
+- [`offchain/SIGNING.md`](./offchain/SIGNING.md): EIP-712 offer production and validation
+- [DreamDEX Event Contracts documentation](https://docs.dreamdex.io/developers/event-contracts)
+- [DreamDEX market structure and lifecycle](https://docs.dreamdex.io/developers/event-contracts/market-structure)
+- [DreamDEX bot kit](https://github.com/somnia-chain/dreamdex-bot-kit)
+- [Ethos developer documentation](https://developers.ethos.network/)
+- [Ethos score API](https://developers.ethos.network/api-documentation/api-v2/score)
+- [Somnia documentation](https://docs.somnia.network/)
+
+## Disclaimer
+
+Covenant is experimental software provided for development, research, and hackathon evaluation. It is not a bank, broker, investment adviser, credit-rating agency, or licensed financial institution. Nothing in this repository constitutes financial, legal, or investment advice. Test tokens and testnet markets have no monetary value.
+
+Do not deploy or use Covenant with assets of value without completing remediation, independent security review, legal analysis, risk calibration, and operational controls appropriate to the intended jurisdiction and use case.

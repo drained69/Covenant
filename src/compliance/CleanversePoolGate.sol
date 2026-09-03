@@ -29,7 +29,8 @@ import {IAPassComplianceValidator, RuleV2} from "./interfaces/IAPassComplianceVa
 /// this contract is the pool, `msg.sender = address(this)` from the validator's point of view —
 /// exactly what CCP V2 §5.2 "business contract itself" expects.
 ///
-/// **These three wrappers are inert against the CCP V2 deployment on Monad testnet.** The proxy at
+/// **These three wrappers may be inert against a CCP V2 deployment whose implementation lacks them.**
+/// The proxy at
 /// `0xaC7e5179…` resolves (EIP-1967 impl slot) to `0x68Ce853D…`, whose bytecode carries only the
 /// compliance *read* surface: `isRegistered`, `complianceVerify`, `getRulesV2`. The write selectors
 /// `setRuleV2FromContract` (`0x46bfbe21`), `addRuleV2FromContract` (`0xd8e4e34c`), and
@@ -102,32 +103,29 @@ contract CleanversePoolGate is IEnterGate, ILiquidatorGate {
 
     /* RULE MANAGEMENT (owner-only, forwards to validator)
      *
-     * The three mutators below revert against the CCP V2 implementation currently deployed on Monad
-     * testnet, which does not carry their target selectors — see the contract docstring. Administer
+     * The three mutators below may revert against a CCP V2 implementation that does not carry their
+     * target selectors — see the contract docstring. Administer
      * rules over the Cleanverse API instead (`POST /validator/register`, `POST /validator/set_rule`).
      * `getRules()` is a read and works normally.
      */
 
     /// @notice Replaces every RuleV2 for this gate with a single new rule (validator's
     /// `setRuleV2FromContract`).
-    /// @dev Reverts on the current Monad testnet validator: `setRuleV2FromContract` is not in the
-    /// deployed implementation. Use `POST /validator/set_rule`.
+    /// @dev Use `POST /validator/set_rule` if the deployed implementation does not expose this selector.
     function setRule(RuleV2 calldata rule) external onlyOwner {
         validator.setRuleV2FromContract(rule);
         emit RuleSet(rule);
     }
 
     /// @notice Appends a RuleV2 (OR semantics on the validator's rule list).
-    /// @dev Reverts on the current Monad testnet validator: `addRuleV2FromContract` is not in the
-    /// deployed implementation. Use `POST /validator/add_rule`.
+    /// @dev Use `POST /validator/add_rule` if the deployed implementation does not expose this selector.
     function addRule(RuleV2 calldata rule) external onlyOwner {
         validator.addRuleV2FromContract(rule);
         emit RuleAdded(rule);
     }
 
     /// @notice Removes the rule at `index` from the validator's rule list for this gate.
-    /// @dev Reverts on the current Monad testnet validator: `removeRuleV2FromContract` is not in the
-    /// deployed implementation. Use `POST /validator/remove_rule`.
+    /// @dev Use `POST /validator/remove_rule` if the deployed implementation does not expose this selector.
     function removeRule(uint256 index) external onlyOwner {
         validator.removeRuleV2FromContract(index);
         emit RuleRemoved(index);

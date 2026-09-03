@@ -1,22 +1,22 @@
 import { Link } from "react-router-dom";
 import { FaucetPanel } from "../components/Faucet";
 import { IconArrowRight } from "../components/icons";
+import { CHAIN } from "../config/chain";
 
 /**
- * Standalone faucet page. The same `FaucetPanel` also renders as a tab inside the
- * market-detail action panel, so a user who discovers they are short on tokens
- * mid-flow does not have to navigate away — and neither copy can drift.
+ * Somnia testnet funding page: DreamDEX venue collateral (TestUSDC, dripped
+ * through the official SDK) and STT gas (linked external faucet).
  */
 export function Faucet() {
   return (
     <section className="shell py-12 space-y-8">
       <header className="space-y-3 max-w-2xl">
         <span className="text-micro font-semibold uppercase text-muted">Testnet</span>
-        <h1 className="text-h1 text-slate-50">Token faucet</h1>
+        <h1 className="text-h1 text-slate-50">Fund your wallet</h1>
         <p className="text-body text-muted">
-          Mint the two demo ERC20s that back every market on this deployment. Both are test
-          tokens on Monad testnet with no value — mint as much as you need to exercise the
-          lend, borrow, and repay flows.
+          Everything you need to trade Event Contracts on {CHAIN.name}: DreamDEX test
+          collateral from the SDK faucet, and STT for gas from the public Somnia faucet. Both
+          are test tokens with no value.
         </p>
       </header>
 
@@ -25,17 +25,16 @@ export function Faucet() {
       <div className="card">
         <div className="card-body space-y-3">
           <p className="text-body-sm text-muted">
-            Minting is permissionless and needs no A-Pass. Opening a position does — markets
-            are compliance-gated, so a wallet holding tokens still cannot lend or borrow until
-            its credential is valid.
+            Funded? Pick a live Event Contract and take a side — your Ethos tier sets the
+            credit terms you qualify for.
           </p>
           <div className="flex flex-wrap gap-4">
-            <Link to="/compliance" className="link inline-flex items-center gap-1.5 text-body-sm">
-              Check compliance status
+            <Link to="/markets" className="link inline-flex items-center gap-1.5 text-body-sm">
+              Browse Event Contracts
               <IconArrowRight className="w-3.5 h-3.5" />
             </Link>
-            <Link to="/markets" className="link inline-flex items-center gap-1.5 text-body-sm">
-              Browse markets
+            <Link to="/credit" className="link inline-flex items-center gap-1.5 text-body-sm">
+              Check your credit tier
               <IconArrowRight className="w-3.5 h-3.5" />
             </Link>
           </div>

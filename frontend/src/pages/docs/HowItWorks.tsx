@@ -1,6 +1,6 @@
 import { Link } from "react-router-dom";
-import { IconCheck, IconX, IconArrowRight, IconShield, IconLayers } from "../../components/icons";
-import { LADDER } from "../../config/chain";
+import { IconCheck, IconArrowRight, IconShield, IconLayers } from "../../components/icons";
+import { ETHOS_TIERS } from "../../config/dreamdex";
 import { DocPage, Section, StepCard, LayerCard } from "./_primitives";
 
 /**
@@ -22,7 +22,7 @@ export function HowItWorks() {
     <DocPage
       eyebrow="Protocol overview"
       title="How Covenant works"
-      lede="The whole system in one page — the offer flow, the compliance gate, the credit ladder that prices a credential into leverage, and the wrapped-A-token layer that closes the flash-loan surface."
+      lede="The whole system in one page — the offer flow, the reputation gate, the credit tiers that price credibility into terms, and the DreamDEX execution that turns borrowed capital into an on-chain position."
     >
       {/* ── The offer lifecycle ────────────────────────────────────────── */}
       <Section
@@ -47,10 +47,9 @@ export function HowItWorks() {
             title="Fill on-chain"
             body={
               <>
-                A taker pastes the signed JSON into the{" "}
-                <Link to="/markets" className="link">Take offer</Link> tab and calls{" "}
-                <code className="code-inline">fillOffer(...)</code>. The engine ratifies the
-                signature via the offer's notary.
+                A taker calls <code className="code-inline">fillOffer(...)</code> and the
+                engine ratifies the signature via the offer's notary before touching
+                positions.
               </>
             }
             hint="src/Covenant.sol · src/notaries/EcrecoverNotary.sol"
@@ -60,61 +59,54 @@ export function HowItWorks() {
             title="Gate fires in-tx"
             body={
               <>
-                Before positions update, the market gate runs{" "}
-                <code className="code-inline">isRegistered()</code> →{" "}
-                <code className="code-inline">complianceVerify()</code> against the CVI Compliance
-                Validator (CCP V2). Any failure reverts the transaction. A-Pass credentials are{" "}
-                <strong>reusable</strong> — a wallet that passed once needs no re-verification.
+                Before debt increases, the market gate runs{" "}
+                <code className="code-inline">canIncreaseDebt(borrower)</code>. Any failure
+                reverts the transaction. Score authorizations are{" "}
+                <strong>short-lived and wallet-bound</strong> — expired, replayed, or
+                wrong-wallet authorizations never grant enhanced terms.
               </>
             }
-            hint="src/compliance/CleanversePoolGate.sol"
+            hint="src/periphery/EcrecoverAuthorizer.sol"
             emphasized
           />
         </div>
       </Section>
 
-      {/* ── Getting verified ───────────────────────────────────────────────
+      {/* ── Getting qualified ───────────────────────────────────────────────
           Added because the page described the gate's *check* in detail but never
           said how a wallet comes to pass it — the reader could follow the whole
           offer flow and still not know what to do about step 3 denying them.
-          The load-bearing fact is that the credential is issued once and reused,
-          which is also what the Get verified tab now reflects. */}
+          The load-bearing fact is that reputation accrues off-chain and is
+          consumed on-chain, which is also what the credit page reflects. */}
       <Section
-        title="Getting verified"
-        subtitle="The gate checks a credential; it does not issue one. An A-Pass is issued once per wallet and then reused on every fill."
+        title="Getting qualified"
+        subtitle="The gate reads a score; it does not issue one. Ethos credibility accrues to the wallet through the ecosystem, and Covenant binds it to terms."
       >
         <div className="grid md:grid-cols-3 gap-5">
           <StepCard
             n={1}
-            title="Submit intake once"
+            title="Reputation accrues"
             body={
               <>
-                Identity details and a document go to Cleanverse from the{" "}
-                <Link to="/compliance?tab=register" className="link">Get verified</Link> tab.
-                Nothing about this step is on-chain.
+                Reviews, vouches, and attestations on Ethos shape the wallet's credibility
+                score over time. Covenant only reads it — see{" "}
+                <Link to="/credit" className="link">your live score</Link>.
               </>
             }
-            hint="offchain/cleanverse_client.py"
+            hint="Ethos v2 API"
           />
           <StepCard
             n={2}
-            title="A-Pass is issued"
-            body="Cleanverse binds the credential to the wallet address. From then on complianceVerify(pool, wallet) returns true without any further action from the holder."
-            hint="IAPassComplianceValidator"
+            title="Score is authorized"
+            body="A short-lived, wallet-bound authorization commits the observed score, its tier, a nonce, and an expiry. The on-chain registry verifies the signature and rejects stale or replayed data."
+            hint="offchain/somnia-service.mjs"
             emphasized
           />
           <StepCard
             n={3}
-            title="Reused on every fill"
-            body={
-              <>
-                Every subsequent fill, transfer, and flash-loan receipt re-reads the same
-                credential. Re-running intake issues nothing new — the{" "}
-                <Link to="/compliance" className="link">My status</Link> tab shows the live verdict
-                instead.
-              </>
-            }
-            hint="frontend/src/hooks/useCompliance.ts"
+            title="Tier sets the terms"
+            body="Open, Established, or Reputable — each a published LTV bound to its own market. A falling score can limit new borrowing but never blocks repayment, exits, or collateral withdrawal."
+            hint="src/reputation/EthosTierGate.sol"
           />
         </div>
 
@@ -124,13 +116,12 @@ export function HowItWorks() {
           </div>
           <div className="space-y-1.5 min-w-0">
             <div className="text-body font-semibold text-slate-100">
-              Two conditions, both checked live
+              Reputation gates entry, never exit
             </div>
             <p className="text-body-sm text-slate-300 leading-relaxed">
-              Holding an A-Pass is only half the gate. The pool itself must also be registered with
-              the validator — <code className="code-inline">isRegistered(pool)</code> — so a
-              verified wallet can still be denied on an unregistered market. Neither result is
-              cached on-chain; both are staticcalls made at the moment of the fill.
+              Policy checks apply only when exposure increases — new borrowing and new
+              market entry. Repaying debt, redeeming credit, and withdrawing collateral carry no
+              reputation check at all, so a stale or unavailable score can never strand funds.
             </p>
           </div>
         </div>
@@ -138,52 +129,57 @@ export function HowItWorks() {
 
       {/* ── The credit ladder ──────────────────────────────────────────────
           Added because the gate story stopped at a binary: you pass or you don't.
-          That undersells what the credential actually carries. An A-Pass has a
-          sub-tier, and because a gate's sub-tier bar is hashed into the market id,
-          a market's leverage and its credential requirement are one object. That
-          is the mechanism that turns compliance from a checkpoint into pricing —
-          and it is the part of the design a reader is least likely to infer. */}
+          That undersells what the reputation signal actually carries. An Ethos
+          score maps to a tier, and because a market's gate is hashed into the
+          market id, a market's terms and its reputation requirement are one
+          object. That is the mechanism that turns reputation from a checkpoint
+          into pricing — and it is the part of the design a reader is least
+          likely to infer. */}
       <Section
         title="The credit ladder"
-        subtitle="One gate answers yes or no. A ladder of gates answers on what terms. Better credentials clear a higher bar, and a higher bar carries more leverage."
+        subtitle="One gate answers yes or no. A ladder of gates answers on what terms. Higher credibility clears a higher bar, and a higher bar carries better terms."
       >
         <div className="card overflow-hidden">
           <div className="card-header">
             <div className="flex items-center gap-2.5">
               <IconLayers className="w-4 h-4 text-brand-400" />
-              <div className="card-title">Rungs</div>
+              <div className="card-title">Tiers</div>
             </div>
             <span className="text-micro font-semibold uppercase text-muted">
-              Sub-tier bar → leverage
+              Ethos score bar → terms
             </span>
           </div>
           <table className="w-full text-body-sm">
             <thead>
               <tr className="border-b border-line">
                 <th className="text-left font-semibold text-micro uppercase text-muted px-5 py-3">
-                  Rung
+                  Tier
                 </th>
                 <th className="text-left font-semibold text-micro uppercase text-muted px-5 py-3">
                   Who clears it
                 </th>
                 <th className="text-right font-semibold text-micro uppercase text-muted px-5 py-3">
-                  Sub-tier
+                  Score bar
                 </th>
                 <th className="text-right font-semibold text-micro uppercase text-muted px-5 py-3">
-                  LLTV
+                  Max LTV
                 </th>
               </tr>
             </thead>
             <tbody>
-              {LADDER.rungs.map((rung) => (
-                <tr key={rung.key} className="border-b border-line last:border-0">
-                  <td className="px-5 py-3.5 text-slate-100">{rung.label}</td>
-                  <td className="px-5 py-3.5 text-slate-300">{rung.qualifies}</td>
+              {ETHOS_TIERS.map((tier) => (
+                <tr key={tier.name} className="border-b border-line last:border-0">
+                  <td className="px-5 py-3.5 text-slate-100">{tier.name}</td>
+                  <td className="px-5 py-3.5 text-slate-300">
+                    {tier.minimum === 0
+                      ? "Any wallet — the conservative baseline market."
+                      : `Wallets scoring ${tier.minimum.toLocaleString()} or above on Ethos.`}
+                  </td>
                   <td className="px-5 py-3.5 text-right font-mono tabular-nums text-slate-300">
-                    {rung.minSubTier}
+                    {tier.minimum === 0 ? "—" : tier.minimum.toLocaleString()}
                   </td>
                   <td className="px-5 py-3.5 text-right font-mono tabular-nums text-slate-100">
-                    {((Number(rung.lltv) / 1e18) * 100).toFixed(1)}%
+                    {tier.ltv}%
                   </td>
                 </tr>
               ))}
@@ -195,19 +191,18 @@ export function HowItWorks() {
           <div className="card p-6 space-y-3 border-brand-500/30">
             <div className="card-title">Terms and policy are one object</div>
             <p className="text-body-sm text-slate-300 leading-relaxed">
-              A market id is the keccak of every field, gate address included. So the 91.5% market
-              is cryptographically bound to its sub-tier-30 gate — nobody can offer that leverage to
-              a wallet that clears a lower bar, because doing so would be a different market with a
-              different id.
+              A market id is the keccak of every field, gate address included. So the 77% LTV
+              market is cryptographically bound to its Reputable-tier gate — nobody can offer
+              those terms to a wallet that clears a lower bar, because doing so would be a
+              different market with a different id.
             </p>
           </div>
           <div className="card p-6 space-y-3">
-            <div className="card-title">Under-collateralisation, earned</div>
+            <div className="card-title">Better terms, earned</div>
             <p className="text-body-sm text-slate-300 leading-relaxed">
-              Higher LLTV means less collateral for the same loan. A $100k borrow needs about $260k
-              of collateral on the retail rung and about $109k on the institutional one — 2.4× less.
-              The credential is what closes that gap, which makes verification worth something
-              beyond access.
+              Higher LTV means more borrowing power for the same collateral. One tBTC supports
+              about $41.6k of debt at the Open tier and $83.2k at Reputable — 2× the capital
+              efficiency, earned by the credibility score rather than by posting more assets.
             </p>
             <div className="pt-3 border-t border-line text-micro font-mono text-subtle">
               src/periphery/CreditLadderLens.sol
@@ -217,13 +212,12 @@ export function HowItWorks() {
 
         <div className="card p-6 flex flex-col sm:flex-row sm:items-center justify-between gap-5">
           <p className="text-body-sm text-muted max-w-xl">
-            The ladder page resolves your wallet against every rung in one{" "}
-            <code className="code-inline">eth_call</code> and shows what each would require. The{" "}
-            <Link to="/docs/credit-ladder" className="link">Credit ladder</Link> doc covers the
-            sub-tier model and the current registration state of each rung.
+            The credit page reads your live Ethos score and shows what each tier would earn. The{" "}
+            <Link to="/docs/credit-ladder" className="link">Credit tiers</Link> doc covers the
+            thresholds and what is enforced on-chain today.
           </p>
-          <Link to="/ladder" className="btn-secondary flex-shrink-0">
-            View the ladder
+          <Link to="/credit" className="btn-secondary flex-shrink-0">
+            Check your tier
             <IconArrowRight className="w-4 h-4" />
           </Link>
         </div>
@@ -239,117 +233,91 @@ export function HowItWorks() {
             index="01"
             title="Frontend"
             path="frontend/"
-            body="React + wagmi SPA. Reads market state from Covenant.toMarket(id); submits fills via fillOffer. No backend of our own — the marketplace is whatever channel the maker uses to publish signed offers."
+            body="React + wagmi SPA. Discovers DreamDEX Event Contracts through the official Somnia Markets SDK, reads Ethos credibility per wallet, submits Up/Down orders, and tracks the unified portfolio."
           />
           <LayerCard
             index="02"
             title="Off-chain services"
             path="offchain/"
-            body="sign_offer.js (EIP-712 offer producer) and cleanverse_client.py (Cooperate API client, AES-CBC, api-id header). The client's attestable property mirrors the on-chain gate's fail-closed rule so the two halves can never disagree."
+            body="somnia-service.mjs reads Ethos, signs short-lived score authorizations for the deployed tier gates, and returns fresh EIP-712 lender offers. Its signers cannot override collateral health or move borrower funds."
           />
           <LayerCard
             index="03"
             title="Credit engine"
             path="src/Covenant.sol"
-            body="The fixed-maturity credit primitive. Market identity is the keccak of every field including gate addresses, so a market's compliance policy cannot be silently rebound after creation."
+            body="The fixed-maturity credit primitive. Market identity is the keccak of every field including gate addresses, so a market's underwriting policy cannot be silently rebound after creation."
           />
           <LayerCard
             index="04"
-            title="Compliance surface"
-            path="src/compliance/"
-            body="Gates decide 'may this account open a position?'; WrappedAToken decides 'may this account receive these tokens?'. Same isRegistered + complianceVerify staticcall against the CCP V2 validator, same 150k gas cap, same fail-closed rule."
+            title="Reputation surface"
+            path="src/reputation/"
+            body="Gates decide 'may this account take new exposure?' through narrow hooks — canIncreaseDebt, canIncreaseCredit, canLiquidate. Score authorizations are wallet-, chain-, nonce-, and expiry-bound, and fail closed."
             emphasized
           />
         </div>
       </Section>
 
-      {/* ── The flash-loan story ──────────────────────────────────────────── */}
+      {/* ── Trading execution ───────────────────────────────────────────── */}
       <Section
-        title="Closing the flash-loan surface"
-        subtitle="The one thing a per-market gate can't close is flashLoan — it lives on the core, not per-market. The fix is to move the check to the token."
+        title="From qualification to order"
+        subtitle="Borrowed capital is spent, not rehypothecated: the integration issues DreamDEX TestUSDC as trading collateral rather than accepting outcome positions as loan collateral."
       >
         {/*
-          The before/after pair was two `space-y-2` columns inside one card, with
-          the verdicts set in `stat-value-down` and `stat-value-up`. Those
-          primitives are for *figures* — 20px semibold tabular — so "Open" and
-          "Closed" arrived looking like numeric readouts, and red/green on a word
-          reads as gain/loss rather than open/closed.
-
-          It's now two sibling panels: the comparison is the point, so the two
-          states should be visibly separate surfaces rather than two halves of one.
-          The verdict is a badge (which is what a two-state label is), and each
-          panel carries the border tint of its own state.
+          The comparison is the point, so the two paths are visibly separate
+          surfaces. The verdict is a badge (which is what a two-state label is),
+          and each panel carries the border tint of its own state.
         */}
         <div className="grid md:grid-cols-2 gap-5">
-          <div className="card p-6 space-y-4 border-bad/25">
+          <div className="card p-6 space-y-4 border-ok/25">
             <div className="flex items-center justify-between gap-3">
-              <div className="stat-label">Without WrappedAToken</div>
-              <span className="badge-bad">
-                <IconX className="w-3 h-3" />
-                Open
+              <div className="stat-label">In scope today</div>
+              <span className="badge-ok">
+                <IconCheck className="w-3 h-3" />
+                Live
               </span>
             </div>
             <p className="text-body-sm text-slate-300 leading-relaxed">
-              <code className="code-inline">covenant.flashLoan([USDC], amt, callback)</code>{" "}
-              succeeds for any wallet. A non-compliant callback receives compliant-market
-              liquidity for a single transaction.
+              Borrowed collateral funds Up/Down orders on DreamDEX's on-chain limit order book.
+              Positions settle as ERC-6909 outcome tokens; resolution, void, and redemption
+              states surface in the portfolio.
             </p>
           </div>
 
-          <div className="card p-6 space-y-4 border-ok/25">
+          <div className="card p-6 space-y-4 border-line-strong">
             <div className="flex items-center justify-between gap-3">
-              <div className="stat-label">With WrappedAToken</div>
-              <span className="badge-ok">
-                <IconCheck className="w-3 h-3" />
-                Closed
-              </span>
+              <div className="stat-label">Future extension</div>
+              <span className="badge-neutral">Planned</span>
             </div>
             <p className="text-body-sm text-slate-300 leading-relaxed">
-              <code className="code-inline">safeTransfer(waUSDC → callback)</code> reverts with{" "}
-              <code className="code-inline">RecipientNotCompliant</code> inside the token, before
-              the callback runs.
+              Direct ERC-6909 outcome-position collateral — token-ID-aware custody,
+              pre-settlement valuation, liquidation liquidity, and void-market accounting.
+              Intentionally outside the initial scope.
             </p>
-            <div className="pt-3 border-t border-line text-micro font-mono text-subtle">
-              Proven by WrappedATokenFlashLoanTest
-            </div>
           </div>
         </div>
 
         {/*
-          Deleted here: a 400×120 SVG area chart labelled "Coverage over exposure
-          surface" rising to "gate + token = 100%".
-
-          It plotted nothing. The curve was a hand-authored bezier, both axes were
-          unlabelled and unitless, and no value in it came from the protocol — a
-          chart shape used as decoration. That is the exact move that separates a
-          crypto dashboard from Stripe or Modern Treasury: in enterprise software a
-          chart is a promise that you are looking at data, and an invented curve on
-          a compliance page spends the reader's trust on nothing. It also carried
-          the page's three hardcoded hexes (#22d3c2 twice, #4feadb), none of which
-          were palette tokens.
-
-          The claim it gestured at — that the two mechanisms together leave no gap —
-          is worth stating, so it's stated as a coverage table where each row is
-          checkable against the code.
+          A coverage table where each row is checkable against the code: every
+          write path on the venue, and what bounds it.
         */}
         <div className="card overflow-hidden">
           <div className="card-header">
-            <div className="card-title">Where each check applies</div>
+            <div className="card-title">Where each control applies</div>
             <span className="text-micro font-semibold uppercase text-muted">
-              Full exposure surface
+              Trading surface
             </span>
           </div>
           <table className="w-full text-body-sm">
             <thead>
               <tr className="border-b border-line">
                 <th className="text-left font-semibold text-micro uppercase text-muted px-5 py-3">
-                  Entry path
+                  Action
                 </th>
                 <th className="text-left font-semibold text-micro uppercase text-muted px-5 py-3">
-                  Enforced by
+                  Bounded by
                 </th>
                 <th className="text-right font-semibold text-micro uppercase text-muted px-5 py-3">
-                  Covered
+                  Checked
                 </th>
               </tr>
             </thead>
@@ -378,7 +346,8 @@ export function HowItWorks() {
         <div>
           <div className="text-h3 text-slate-50">See it settle</div>
           <p className="mt-1.5 text-body-sm text-muted max-w-md">
-            Markets are live on Monad Testnet. Fills run the exact path described above.
+            Live DreamDEX Event Contracts on {""}
+            Somnia Testnet. Orders run through the exact path described above.
           </p>
         </div>
         <Link to="/markets" className="btn-primary flex-shrink-0">
@@ -391,8 +360,9 @@ export function HowItWorks() {
 }
 
 const COVERAGE = [
-  { path: "Open a position (fill an offer)", by: "market gate" },
-  { path: "Receive A-tokens by transfer", by: "WrappedAToken" },
-  { path: "Receive A-tokens via flashLoan", by: "WrappedAToken" },
+  { path: "Increase borrower debt (fill an offer)", by: "entry gate · canIncreaseDebt" },
+  { path: "Increase lender credit", by: "entry gate · canIncreaseCredit" },
+  { path: "Repay, redeem, withdraw collateral", by: "no gate — exits always open" },
   { path: "Rebind a market's gate after creation", by: "market id = keccak" },
+  { path: "Order size on DreamDEX", by: "wallet collateral balance" },
 ];

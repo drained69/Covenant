@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * Generates a real signed offer book for the live Monad testnet market.
+ * Generates a real signed offer book for the live target-testnet market.
  *
  * Outputs a JSON array of signed offers to frontend/src/config/offerBook.json.
  *

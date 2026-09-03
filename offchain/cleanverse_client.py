@@ -59,7 +59,7 @@ CODE_ONCHAIN_READ_FAILED = "12027"
 """Returned when a pool read fails, typically because the pool is paused."""
 
 SUPPORTED_CHAINS = frozenset(
-    {"solana", "base", "avalanche", "arbitrum", "ethereum", "polygon", "bsc", "monad", "hashkey", "platon"}
+    {"solana", "base", "avalanche", "arbitrum", "ethereum", "polygon", "bsc", "somnia", "hashkey", "platon"}
 )
 
 
@@ -281,7 +281,7 @@ class CleanverseClient:
         submits the rule-setting transaction itself, and the result is readable on-chain through
         `validator.getRulesV2(pool)` (and hence `CleanversePoolGate.getRules()`). The gate's own
         `setRule` / `addRule` wrappers target validator selectors that the implementation deployed
-        on Monad testnet does not carry, so they revert — the API is the only working write path.
+         on the target testnet does not carry, so they revert — the API is the only working write path.
         To change a rule after registration, use `set_pool_rule` (no owner signature required).
 
         `private_key` defaults to the `PRIVATE_KEY` env var (the same key that deployed the gate).
@@ -628,7 +628,7 @@ def _cli() -> int:
     sub.add_parser("probe", help="Health-check the gateway + verify api-id authentication")
 
     p_apass = sub.add_parser("generate-apass", help="Issue an A-Pass credential to a wallet")
-    p_apass.add_argument("--chain", required=True, help="target chain (e.g. monad)")
+    p_apass.add_argument("--chain", required=True, help="target chain (e.g. somnia)")
     p_apass.add_argument("--wallet", required=True, help="0x-prefixed wallet address")
     p_apass.add_argument("--country", default="", help="ISO-3166-1 alpha-2 country code (e.g. US, NG)")
     p_apass.add_argument("--name", default="", help="full name for identity data (default: Covenant User)")
@@ -643,7 +643,7 @@ def _cli() -> int:
     )
 
     p_reg = sub.add_parser("register", help="Register a contract as a pool (CCP V2 §5.4)")
-    p_reg.add_argument("--chain", required=True, help="one of: solana, base, avalanche, arbitrum, ethereum, polygon, bsc, monad, hashkey, platon")
+    p_reg.add_argument("--chain", required=True, help="one of: solana, base, avalanche, arbitrum, ethereum, polygon, bsc, somnia, hashkey, platon")
     p_reg.add_argument("--address", required=True, help="0x-prefixed contract address to register")
     p_reg.add_argument(
         "--min-sub-tier",

@@ -12,6 +12,29 @@ export const fmtUnits = (raw: bigint | undefined, decimals: number, digits = 4):
 export const fmtUsd = (n: number) =>
   n.toLocaleString(undefined, { style: "currency", currency: "USD", maximumFractionDigits: 2 });
 
+/**
+ * Compact money for stat surfaces and market rows: 24800 → "$24.8K",
+ * 1250000 → "$1.3M". Trading terminals quote volume and capacity this way;
+ * full precision belongs in ledgers, not in scan-level figures.
+ */
+export function fmtMoney(n: number): string {
+  const abs = Math.abs(n);
+  if (abs >= 1e9) return `$${(n / 1e9).toFixed(1)}B`;
+  if (abs >= 1e6) return `$${(n / 1e6).toFixed(1)}M`;
+  if (abs >= 1e3) return `$${(n / 1e3).toFixed(1)}K`;
+  return n % 1 === 0 ? `$${n.toFixed(0)}` : `$${n.toFixed(2)}`;
+}
+
+/**
+ * Probability as price: 0.62 → "62¢". The prediction-market convention —
+ * a YES share costs 62¢ and pays $1 — expresses both probability and payout
+ * in one number, which is why every serious event-contract interface quotes
+ * cents instead of percentages.
+ */
+export function fmtCents(p: number | undefined): string {
+  return p === undefined ? "—" : `${Math.round(p * 100)}¢`;
+}
+
 const addCommas = (s: string) => s.replace(/\B(?=(\d{3})+(?!\d))/g, ",");
 
 export const daysUntil = (unixSec: bigint): number =>
@@ -52,4 +75,20 @@ export const hostOf = (url: string): string => {
   } catch {
     return url;
   }
+};
+
+/**
+ * Compact countdown for live surfaces ("0:41", "12:05", "3h 12m").
+ *
+ * `humanUntil` answers "roughly how long?" on rows and captions; the trade
+ * panel needs the opposite — an exact clock the trader can watch tick. Near
+ * expiry it shows seconds because that is when settlement timing matters.
+ */
+export const countdown = (unixSec: number, nowMs: number = Date.now()): string => {
+  const s = Math.max(0, Math.floor(unixSec - nowMs / 1000));
+  const h = Math.floor(s / 3600);
+  const m = Math.floor((s % 3600) / 60);
+  const sec = s % 60;
+  if (h > 0) return `${h}h ${String(m).padStart(2, "0")}m`;
+  return `${m}:${String(sec).padStart(2, "0")}`;
 };

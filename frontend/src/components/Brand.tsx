@@ -10,10 +10,10 @@
  * the token via `currentColor` on a wrapper, which means the brand colour can
  * never drift from the theme again.
  */
-export function Brand({ className }: { className?: string }) {
+export function Brand({ className, compact = false }: { className?: string; compact?: boolean }) {
   return (
-    <div className={`flex items-center gap-2.5 ${className ?? ""}`}>
-      <svg width="24" height="24" viewBox="0 0 100 100" fill="none" aria-hidden="true">
+    <div className={`flex items-center ${compact ? "gap-2" : "gap-2.5"} ${className ?? ""}`}>
+      <svg width={compact ? 20 : 24} height={compact ? 20 : 24} viewBox="0 0 100 100" fill="none" aria-hidden="true">
         {/* the C arc — inherits the surrounding text colour */}
         <path
           d="M86.14,61.74 A38,38 0 1 1 86.14,38.26"
@@ -39,7 +39,9 @@ export function Brand({ className }: { className?: string }) {
         feel while the word stays a single unit. Weight drops from bold to
         semibold because letterspaced caps already carry visual weight.
       */}
-      <span className="text-body-sm font-semibold tracking-[0.14em]">COVENANT</span>
+      <span className={`${compact ? "text-[13px]" : "text-body-sm"} font-semibold tracking-[0.14em] whitespace-nowrap`}>
+        COVENANT
+      </span>
     </div>
   );
 }

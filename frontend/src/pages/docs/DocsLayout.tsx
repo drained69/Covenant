@@ -123,8 +123,8 @@ function DocsNavLink({
           : [
               "block rounded-md px-3 py-2 text-body-sm transition-colors",
               isActive
-                ? "bg-white/[0.06] text-slate-50 font-medium"
-                : "text-slate-400 hover:text-slate-100 hover:bg-white/[0.03]",
+                ? "bg-ink-900 text-slate-50 font-medium"
+                : "text-slate-400 hover:text-slate-100 hover:bg-ink-900",
             ].join(" ")
       }
     >

@@ -3,7 +3,7 @@ via_ir = true
 optimizer = true
 optimizer_runs = 800
 bytecode_hash = "none"
-evm_version = "osaka"
+evm_version = "cancun"
 fs_permissions = [{ access = "read", path = "test/ticks_exact.json" }]
 
 [profile.default.fmt]
@@ -18,20 +18,10 @@ exclude_lints = [
 ]
 
 # Named RPC endpoints — resolved from .env. Usage:
-#   forge script script/DeployCovenant.s.sol --rpc-url monad --broadcast --legacy
-#   forge test --fork-url monad
+#   forge script script/DeployCovenant.s.sol --rpc-url somnia --broadcast
+#   forge test --fork-url somnia
 # ${RPC_URL} is read from the process env; forge auto-loads .env into it when
 # it starts, so you no longer need `source .env` before every command.
 [rpc_endpoints]
-monad = "${RPC_URL}"
-
-# Monad testnet verifies via Sourcify (hosted by BlockVision), NOT an Etherscan
-# API key. Usage:
-#   forge verify-contract <addr> src/Covenant.sol:Covenant --chain 10143 \
-#     --verifier sourcify --verifier-url https://sourcify-api-monad.blockvision.org/
-#
-# The trailing slash is REQUIRED — forge concatenates "v2/..." onto this URL
-# without inserting one, so omitting it produces a DNS error. Do not use the
-# "/api" suffix forge suggests in its error hint; this server serves v2 at root.
+somnia = "${RPC_URL}"
 [etherscan]
-# monad = { key = "${MONAD_EXPLORER_KEY}", url = "https://testnet.monadexplorer.com/api" }

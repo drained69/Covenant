@@ -1,0 +1,33 @@
+{
+  "_comment": "Template for deployments/somnia-testnet.json. Copy, fill from DeploySomnia.s.sol's console output, and the service + frontend come alive. The three marketIds are printed by the deploy script; maxLif per tier is printed with its LLTV.",
+  "chainId": 50312,
+  "covenant": "0x0000000000000000000000000000000000000000",
+  "notary": "0x0000000000000000000000000000000000000000",
+  "loanToken": "0x70a86D8842FB63C4Ad2b7cdddF530eBf1BB25d8E",
+  "collateralToken": "0x0000000000000000000000000000000000000000",
+  "oracle": "0x0000000000000000000000000000000000000000",
+  "maturity": 1803859200,
+  "markets": {
+    "open": {
+      "gate": "0x0000000000000000000000000000000000000000",
+      "threshold": 0,
+      "lltv": "385000000000000000",
+      "maxLif": "1181683899556868537",
+      "marketId": "0x0000000000000000000000000000000000000000000000000000000000000000"
+    },
+    "established": {
+      "gate": "0x0000000000000000000000000000000000000000",
+      "threshold": 1600,
+      "lltv": "625000000000000000",
+      "maxLif": "1103448275862068965",
+      "marketId": "0x0000000000000000000000000000000000000000000000000000000000000000"
+    },
+    "reputable": {
+      "gate": "0x0000000000000000000000000000000000000000",
+      "threshold": 2000,
+      "lltv": "770000000000000000",
+      "maxLif": "1061007957559681697",
+      "marketId": "0x0000000000000000000000000000000000000000000000000000000000000000"
+    }
+  }
+}

@@ -2,12 +2,35 @@
 @tailwind components;
 @tailwind utilities;
 
-:root { color-scheme: dark; }
+:root { color-scheme: light; }
 
-html, body, #root { height: 100%; }
+/* min-height, not height. A hard `height: 100%` caps html/body/#root at
+   viewport height with no ancestor scrolling — content longer than the
+   viewport was rendered but unreachable (a 1881px page frozen at
+   scrollTop 0). `min-height: 100%` still lets a short page fill the
+   viewport for full-height empty states, and lets a long page grow past
+   it so the body itself is the scroll container. */
+html, body, #root { min-height: 100%; }
+
+/* Base document behaviour. Smooth scroll + scroll-margin make in-page
+   anchors (`#live-markets`) land below the sticky header instead of
+   underneath it; the rest are the small legibility/mobile defaults every
+   interface should carry: no unexpected iOS text inflation in landscape,
+   better kerning, and no grey tap flash on mobile. */
+html {
+  scroll-behavior: smooth;
+  -webkit-text-size-adjust: 100%;
+  text-rendering: optimizeLegibility;
+}
+
+/* Sticky header is 64px on desktop, ~104px once the mobile tab strip is
+   included — anchor targets get matching breathing room above them. */
+[id] { scroll-margin-top: 6.5rem; }
+@media (min-width: 768px) { [id] { scroll-margin-top: 5.5rem; } }
 
 body {
   @apply bg-ink-950 text-slate-100 font-sans antialiased;
+  -webkit-tap-highlight-color: transparent;
   /* NOTE: do not set "tnum" here. font-feature-settings overrides
      font-variant-numeric on descendants, which silently disabled the
      `tabular-nums` utility on every figure in the app. Numeric alignment is
@@ -15,15 +38,41 @@ body {
   font-feature-settings: "cv11", "ss01";
 }
 
-::selection { background: rgba(34, 211, 238, 0.26); }
+::selection { background: rgba(64, 81, 56, 0.22); }
 
+/* Keyboard focus is a colour-only signal. It must never change geometry —
+   the old `border-radius: 2px` here squished the corners of every rounded
+   control the moment it was focused. Modern browsers draw outlines along
+   the element's own border-radius, so the outline follows the shape for
+   free. */
 :focus-visible {
   outline: 2px solid theme("colors.brand.400");
   outline-offset: 2px;
-  border-radius: 2px;
 }
 
-h1, h2, h3 { @apply text-slate-50; }
+h1, h2, h3 { @apply text-slate-50; text-wrap: balance; }
+/* Pretty wrapping for body copy: avoids orphans (single trailing words) in
+   multi-line paragraphs. No effect on single-line text; ignored where
+   unsupported. Headings balance above. */
+p { text-wrap: pretty; }
+
+/* Respect the OS "reduce motion" setting: entrance animations and the
+   skeleton shimmer become instant, transitions collapse, and smooth
+   scrolling is disabled. animation-delay is zeroed too — the hero and grid
+   staggers use it, and with only durations collapsed a 240ms stagger would
+   otherwise still blank its elements for a quarter second. Motion is a
+   garnish here, never a carrier of meaning — nothing is lost by removing it. */
+@media (prefers-reduced-motion: reduce) {
+  html { scroll-behavior: auto; }
+  *,
+  ::before,
+  ::after {
+    animation-duration: 0.01ms !important;
+    animation-delay: 0s !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}
 
 /* Reusable primitives — kept small so components stay expressive with utilities. */
 @layer components {
@@ -40,7 +89,7 @@ h1, h2, h3 { @apply text-slate-50; }
      than that measure comfortably carries. 1280px gives them room without
      letting prose run past a readable line length (prose blocks constrain
      themselves — see the footer's `max-w-sm` and HowItWorks' `max-w-prose`). */
-  .shell { @apply max-w-7xl mx-auto px-6; }
+  .shell { @apply max-w-7xl mx-auto px-4 sm:px-6; }
 
   /* ── Cards ─────────────────────────────────────────────────────────── */
   .card {
@@ -53,10 +102,6 @@ h1, h2, h3 { @apply text-slate-50; }
      interactivity by clarifying the edge, not by moving the surface. */
   .card-interactive {
     @apply card transition-[box-shadow,border-color] duration-200 ease-out;
-  }
-  .card-interactive:hover {
-    @apply border-line-strong;
-    box-shadow: theme("boxShadow.card-hover");
   }
   /* Accent-emphasized card. Per the theme's "elevation, not luminance" rule this
      is a tinted border + wash, NOT a literal glow — same emphasis idiom the Hero
@@ -78,39 +123,48 @@ h1, h2, h3 { @apply text-slate-50; }
   .card-footer { @apply flex items-center justify-between gap-4 px-6 py-3.5 border-t border-line text-body-sm text-subtle; }
 
   /* ── Buttons ───────────────────────────────────────────────────────── */
+  /* Transition list includes `transform` because of the press feedback
+     below; `select-none` because control labels are not copy targets. */
   .btn {
     @apply inline-flex items-center justify-center gap-2 px-4 py-2.5 rounded-lg
-           text-body-sm font-semibold transition-colors duration-150
+           text-body-sm font-semibold select-none
            disabled:opacity-40 disabled:cursor-not-allowed;
+    transition-property: color, background-color, border-color, opacity, transform;
+    transition-duration: 150ms;
+    transition-timing-function: ease-out;
   }
-  /* One solid accent button per view. `brand-400` reads brighter against the
-     deeper ink base than `brand-500` did, so primary keeps its rank without
-     needing a larger size or a gradient to win attention. */
+  /* Press feedback: a 3% squeeze, not a colour change. Frequent, low-
+     novelty actions get the smallest motion that still reads as "the
+     interface felt the press" — ~100-150ms in, instant release. */
+  .btn:active:not(:disabled) { transform: scale(0.97); }
+  /* One solid accent button per view, following the ramp the palette
+     documents: brand-500 solid, brand-400 on hover (darkens are already
+     near-ink, so hover LIGHTENS by one step — the correct reading on a
+     light canvas). The old 400→300 pairing put cream text on #8b9779,
+     a 2.9:1 failure, on every primary-button hover in the app. */
   .btn-primary {
-    @apply btn bg-brand-400 text-ink-950 hover:bg-brand-300;
+    @apply btn bg-brand-500 text-ink-950;
   }
   /* Secondary is a bordered surface, not a lighter fill. This is the Stripe /
      Linear split: primary is the only filled control, so secondary must be
      legible as "also a button" without competing for the same rank. */
   .btn-secondary {
-    @apply btn bg-transparent text-slate-100 border border-line-strong
-           hover:bg-white/[0.05] hover:border-slate-400/35;
+    @apply btn bg-transparent text-slate-100 border border-line-strong;
   }
-  .btn-ghost { @apply btn text-slate-300 hover:text-white hover:bg-white/[0.05]; }
+  .btn-ghost { @apply btn text-slate-300; }
   .btn-sm { @apply px-3 py-1.5 text-[13px] rounded-md; }
 
   /* ── Nav ───────────────────────────────────────────────────────────── */
   .nav-tab {
     @apply inline-flex items-center gap-2 px-3 py-1.5 rounded-md text-body-sm font-medium
-           text-muted whitespace-nowrap transition-colors duration-150;
+           text-muted whitespace-nowrap select-none transition-colors duration-150;
   }
-  .nav-tab:hover { @apply text-slate-100 bg-white/[0.04]; }
   /* Stripe Dashboard's active tab is a contrast step, not a filled chip: the
      label goes to full white and the surface takes the faintest possible
      plate. The previous 9% wash plus inset ring made every tab look like a
      button, which is why the bar read as a toolbar rather than navigation. */
-  .nav-tab-active {
-    @apply nav-tab text-white bg-white/[0.06];
+   .nav-tab-active {
+     @apply nav-tab text-slate-50 bg-ink-900;
   }
   .nav-tab-icon { @apply w-4 h-4 flex-shrink-0 opacity-70; }
 
@@ -125,10 +179,10 @@ h1, h2, h3 { @apply text-slate-50; }
     @apply step-dot text-ink-950 bg-brand-400 border-brand-400;
   }
   .step-dot-done {
-    @apply step-dot text-brand-300 border-brand-500/40 bg-brand-500/10;
+    @apply step-dot text-brand-600 border-brand-500/40 bg-brand-500/10;
   }
   .step-label { @apply text-micro font-semibold uppercase text-subtle; }
-  .step-label-active { @apply step-label text-brand-300; }
+  .step-label-active { @apply step-label text-brand-600; }
   .step-connector { @apply h-px w-14 bg-line-strong; }
 
   /* ── Stats ─────────────────────────────────────────────────────────── */
@@ -138,10 +192,10 @@ h1, h2, h3 { @apply text-slate-50; }
      contrast — as `muted` + semibold did — forces the eye to read the label
      first every time, which is what made dense metric rows feel slow. */
   .stat-label { @apply text-micro font-semibold uppercase text-subtle; }
-  .stat-value { @apply text-[1.375rem] leading-tight font-semibold text-white tabular-nums tracking-[-0.02em]; }
+  .stat-value { @apply text-[1.375rem] leading-tight font-semibold text-slate-50 tabular-nums tracking-[-0.02em]; }
   .stat-value-up   { @apply stat-value text-ok; }
   .stat-value-down { @apply stat-value text-bad; }
-  .stat-value-pop  { @apply stat-value text-brand-300; }
+  .stat-value-pop  { @apply stat-value text-brand-600; }
   .stat-hint  { @apply text-body-sm text-subtle mt-1; }
 
   /* ── Fields ────────────────────────────────────────────────────────── */
@@ -164,8 +218,8 @@ h1, h2, h3 { @apply text-slate-50; }
   .badge-ok      { @apply badge bg-ok/[0.08]      text-ok       border-ok/25; }
   .badge-warn    { @apply badge bg-warn/[0.08]    text-warn     border-warn/25; }
   .badge-bad     { @apply badge bg-bad/[0.08]     text-bad      border-bad/25; }
-  .badge-info    { @apply badge bg-brand-500/[0.08] text-brand-300 border-brand-500/25; }
-  .badge-neutral { @apply badge bg-white/[0.04]   text-muted    border-line-strong; }
+  .badge-info    { @apply badge bg-brand-500/[0.10] text-brand-600 border-brand-500/25; }
+   .badge-neutral { @apply badge bg-ink-900 text-muted border-line-strong; }
 
   .status-dot { @apply inline-block w-1.5 h-1.5 rounded-full flex-shrink-0; }
   .status-dot-ok   { @apply status-dot bg-ok; }
@@ -174,8 +228,7 @@ h1, h2, h3 { @apply text-slate-50; }
   .status-dot-idle { @apply status-dot bg-subtle; }
 
   .divider { @apply border-t border-line; }
-  .link { @apply text-brand-300 hover:text-brand-200 transition-colors; }
-
+  .link { @apply text-brand-600 transition-colors; }
   /* Inline code. Was styled ad hoc as `text-brand-300` in some places and
      `text-slate-200` in others — the first spends the interactive accent on
      non-interactive text, so a `<code>` sample looked like a link. Code now has
@@ -183,13 +236,13 @@ h1, h2, h3 { @apply text-slate-50; }
      without borrowing the affordance colour. */
   .code-inline {
     @apply font-mono text-[0.9em] px-1 py-0.5 rounded
-           bg-white/[0.06] text-slate-200;
+            bg-ink-900 text-slate-200;
   }
 
   /* ── Tabs (underline style) ────────────────────────────────────────── */
   .tab-btn {
     @apply px-3.5 py-2.5 -mb-px border-b-2 border-transparent text-body-sm font-medium
-           text-slate-400 hover:text-slate-100 transition-colors whitespace-nowrap;
+           text-slate-400 select-none transition-colors whitespace-nowrap;
   }
   .tab-btn-active { @apply tab-btn border-brand-400 text-slate-50; }
 
@@ -197,22 +250,25 @@ h1, h2, h3 { @apply text-slate-50; }
   .table-wrap { @apply overflow-x-auto rounded-xl border border-line; }
   .table { @apply w-full text-left border-collapse; }
   .table thead th {
-    @apply px-4 py-3 text-micro font-semibold uppercase text-muted bg-white/[0.02]
+     @apply px-4 py-3 text-micro font-semibold uppercase text-muted bg-ink-900
            border-b border-line whitespace-nowrap;
   }
   .table tbody td { @apply px-4 py-3.5 text-body-sm text-slate-200 border-b border-line; }
   .table tbody tr:last-child td { @apply border-b-0; }
   .table tbody tr { @apply transition-colors; }
-  .table-row-hover tbody tr:hover { @apply bg-white/[0.025]; }
+
 
   /* ── Skeleton loading ──────────────────────────────────────────────── */
   .skeleton {
-    @apply relative overflow-hidden rounded-md bg-white/[0.06];
+     @apply relative overflow-hidden rounded-md bg-ink-900;
   }
   .skeleton::after {
     content: "";
     @apply absolute inset-0 -translate-x-full animate-shimmer;
-    background-image: linear-gradient(90deg, transparent, rgba(255,255,255,0.06), transparent);
+    /* The sweep DARKENS as it passes: the plate is light ink-900 on a light
+       canvas, so the white gradient this shimmer was designed for (on the
+       old dark theme) was invisible against it. */
+    background-image: linear-gradient(90deg, transparent, rgba(20,20,10,0.07), transparent);
   }
 
   /* ── Empty states ──────────────────────────────────────────────────── */
@@ -220,7 +276,7 @@ h1, h2, h3 { @apply text-slate-50; }
     @apply flex flex-col items-center justify-center text-center gap-3 py-14 px-6;
   }
   .empty-state-icon {
-    @apply w-11 h-11 rounded-full bg-white/[0.05] border border-line flex items-center justify-center text-subtle;
+     @apply w-11 h-11 rounded-full bg-ink-900 border border-line flex items-center justify-center text-subtle;
   }
   .empty-state-title { @apply text-body font-semibold text-slate-200; }
   .empty-state-body { @apply text-body-sm text-subtle max-w-sm; }
@@ -229,12 +285,15 @@ h1, h2, h3 { @apply text-slate-50; }
   [data-tip] { @apply relative; }
   [data-tip]::after {
     content: attr(data-tip);
+    /* Ink-dark plate with cream text: a light-on-light tooltip has almost no
+       figure-ground separation, and the tooltip is the one surface that must
+       read instantly against whatever it floats over. */
     @apply pointer-events-none absolute left-1/2 bottom-full mb-2 -translate-x-1/2 whitespace-nowrap
-           rounded-md bg-ink-700 border border-line-strong px-2.5 py-1.5 text-micro font-medium
-           normal-case text-slate-200 opacity-0 transition-opacity duration-150 z-50;
+           rounded-md bg-slate-50 border border-ink-700 px-2.5 py-1.5 text-micro font-medium
+           normal-case text-ink-950 opacity-0 transition-opacity duration-150 z-50;
     box-shadow: theme("boxShadow.popover");
   }
-  [data-tip]:hover::after, [data-tip]:focus-visible::after { @apply opacity-100; }
+  [data-tip]:focus-visible::after { @apply opacity-100; }
 
   /* ── Dropdown menu ─────────────────────────────────────────────────── */
   .dropdown-panel {
@@ -242,14 +301,20 @@ h1, h2, h3 { @apply text-slate-50; }
            p-1.5 animate-fade-in-up z-50;
     box-shadow: theme("boxShadow.popover");
   }
+  /* Concentric radius: a 12px panel with 6px of padding takes a 6px radius
+     on its items — an 8px item radius visibly fights the panel's curve. */
   .dropdown-item {
-    @apply flex items-center gap-2.5 w-full text-left px-3 py-2 rounded-lg text-body-sm text-slate-200
-           hover:bg-white/[0.06] transition-colors cursor-pointer;
+    @apply flex items-center gap-2.5 w-full text-left px-3 py-2 rounded-md text-body-sm text-slate-200
+           transition-colors cursor-pointer;
   }
 
   /* ── Modal ─────────────────────────────────────────────────────────── */
   .modal-overlay {
-    @apply fixed inset-0 z-50 flex items-center justify-center bg-ink-950/75 p-4 animate-fade-in;
+    /* Dark scrim on a light page (Sotto: #171c187a) — a cream-tinted wash
+       would read as a rendering glitch rather than depth. */
+    @apply fixed inset-0 z-50 flex items-center justify-center p-4 animate-fade-in;
+    background: rgba(15, 17, 9, 0.55);
+    backdrop-filter: blur(4px);
   }
   .modal-panel {
     @apply w-full max-w-md rounded-2xl border border-line-strong bg-surface-raised animate-fade-in-up;
@@ -273,6 +338,45 @@ h1, h2, h3 { @apply text-slate-50; }
      card without spending a card-title-sized step on them. */
   .section-label {
     @apply text-micro font-semibold uppercase text-subtle;
+  }
+
+  /* ── Hover states ──────────────────────────────────────────────────── */
+  /* All component hover affordances live under one capability gate. On
+     touch devices a tap matches `:hover` during the press AND stays matched
+     on the last-tapped element afterwards — cards kept their elevation,
+     rows kept their tint, links kept their hover colour until the user
+     tapped elsewhere. Keyboard focus paths are never gated: they are
+     defined per-component (e.g. [data-tip]:focus-visible) and remain
+     available on every device. The same gate is applied to Tailwind's
+     `hover:` / `group-hover:` variants in tailwind.config.js, so utility
+     hovers written inline in TSX behave identically. */
+  @media (hover: hover) {
+    .card-interactive:hover {
+      @apply border-line-strong;
+      box-shadow: theme("boxShadow.card-hover");
+    }
+     .btn-primary:hover   { @apply bg-brand-400; }
+     .btn-secondary:hover { @apply bg-ink-900 border-slate-400/35; }
+     .btn-ghost:hover     { @apply text-slate-50 bg-ink-900; }
+     .nav-tab:hover       { @apply text-slate-100 bg-ink-900; }
+    .tab-btn:hover       { @apply text-slate-100; }
+     .dropdown-item:hover { @apply bg-ink-900; }
+     .table-row-hover tbody tr:hover { @apply bg-ink-900; }
+     .link:hover          { @apply text-brand-700; }
+    [data-tip]:hover::after { @apply opacity-100; }
+  }
+
+  /* ── Touch adjustments ─────────────────────────────────────────────── */
+  /* Two problems unique to coarse pointers:
+     1. iOS Safari zooms the whole page when an input < 16px is focused —
+        `.field-input` is 15px on desktop for density, and 16px here.
+     2. 44px is the minimum comfortable touch target; nav tabs and small
+        buttons sit at ~30px. Padding grows only where fingers, not mice,
+        are the pointer. */
+  @media (pointer: coarse) {
+    .field-input { font-size: 1rem; }
+    .nav-tab { padding-top: 0.625rem; padding-bottom: 0.625rem; }
+    .btn-sm  { padding-top: 0.5rem; padding-bottom: 0.5rem; }
   }
 }
 
