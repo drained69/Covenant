@@ -62,19 +62,21 @@ const shutdown = async (signal: string) => {
 process.once("SIGINT", () => void shutdown("SIGINT"));
 process.once("SIGTERM", () => void shutdown("SIGTERM"));
 
+// The visible "/" command menu is kept to the actions a trader actually
+// reaches for, in the order they use them. Diagnostic/admin commands
+// (/link, /unlink, /status, /id, /execute) still work when typed but are
+// left off the menu so it reads as a product surface, not a console.
 await bot.api.setMyCommands([
   { command: "markets", description: "List live DreamDEX Event Contracts" },
   { command: "market", description: "Show one market: /market 1" },
-  { command: "book", description: "Show YES/NO book: /book 1 YES" },
-  { command: "link", description: "Add a public read-only address" },
-  { command: "wallet", description: "View linked wallet balances" },
-  { command: "score", description: "View Ethos credibility" },
-  { command: "capacity", description: "View Covenant trading capacity" },
-  { command: "positions", description: "View DreamDEX positions" },
-  { command: "trade", description: "Preview an Event Contract order" },
-  { command: "status", description: "View venue and execution status" },
-  { command: "id", description: "Show your Telegram numeric ID" },
-  { command: "help", description: "Show commands and safety model" },
+  { command: "book", description: "Show a YES/NO order book: /book 1 YES" },
+  { command: "connect", description: "Link your wallet to Telegram" },
+  { command: "wallet", description: "View your wallet balances" },
+  { command: "score", description: "View your Ethos credibility" },
+  { command: "capacity", description: "View your trading capacity" },
+  { command: "positions", description: "View your open positions" },
+  { command: "trade", description: "Preview an order: /trade 1 YES buy 5" },
+  { command: "help", description: "Commands and safety" },
 ]);
 
 // Put the wallet connector in Telegram's native chat menu as well as the

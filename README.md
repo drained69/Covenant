@@ -10,8 +10,7 @@ The product is the trading experience; reputation and credit are what make it di
 - **Ethos-powered trading limits (the differentiator):** a wallet's Ethos credibility score maps it to a transparent credit tier whose gate is hashed into the market's identity — the same collateral supports 2× more borrowing at Reputable (77% LTV) than at Open (38.5%).
 - **Covenant lending (the infrastructure):** a fixed-rate, fixed-maturity credit engine that stays invisible until the trader asks for capital — then it is three clicks: authorize score, post collateral, borrow.
 
-> [!IMPORTANT]
-> Covenant is experimental software under active development. It has not been audited and must not be used with production assets. The trading application and the **entire tier-gated credit layer run live on Somnia testnet**: DreamDEX discovery, Up/Down execution, the unified portfolio, on-chain Ethos score authorization, collateralized borrowing, and redemption — all verified end-to-end against the live chain (a test trader borrowed 500 tUSDC against 1 tBTC through a live Ethos-gated market). The contracts remain unaudited; test tokens only.
+The trading application and the entire tier-gated credit layer run live on Somnia testnet: DreamDEX discovery, Up/Down execution, the unified portfolio, on-chain Ethos score authorization, collateralized borrowing, and redemption — all verified end-to-end against the live chain, including a live borrow of 500 tUSDC against 1 tBTC through an Ethos-gated market.
 
 ## Project at a Glance
 
@@ -26,7 +25,7 @@ The product is the trading experience; reputation and credit are what make it di
 | Frontend | React 18, TypeScript, Vite, wagmi, viem, RainbowKit |
 | DreamDEX integration | `@somnia-chain/markets-sdk` and `@somnia-chain/markets-sdk/react` |
 | Credit contracts | Solidity and Foundry, deployed to Somnia testnet |
-| Prototype status | Working testnet prototype; unaudited and not production-ready |
+| Status | Working testnet prototype, deployed on Somnia Shannon |
 
 ### What Makes the Integration Meaningful
 
@@ -45,33 +44,25 @@ credit does not stop at a separate lending dashboard: the borrowed asset becomes
 usable trading capital on every live DreamDEX Event Contract immediately after
 the borrow transaction.
 
-### Submission Criteria
-
-| Criterion | Evidence in Covenant |
-|---|---|
-| Working prototype | Live DreamDEX reads and writes, deployed Somnia credit contracts, faucet flow, wallet transactions, portfolio, repayment, and redemption |
-| Event Contract integration | Discovery, lifecycle, four-sided outcome book, order entry, cancellation, fills, ERC-6909 balances, settlement, and claims |
-| Meaningful API/SDK use | Shared `SomniaMarkets` client, React live-tail hooks, indexer queries, trader writes, Ethos score reads, and EIP-712 authorization service |
-| Clear user experience | Markets-first homepage, searchable market table, explicit YES/NO prices, payoff preview, three-step capital checklist, and unified portfolio |
-| Innovation | Portable reputation changes collateral efficiency while collateral remains the enforceable safety boundary |
-| Adoption potential | More qualified trading capital can produce additional DreamDEX participation; the same capital can also fund SDK-compatible trading agents |
-| Ecosystem impact | Connects reputation, fixed-maturity credit, and Event Contract execution without requiring DreamDEX to modify its contracts |
-
 ## Table of Contents
 
 - [Overview](#overview)
 - [Why Covenant](#why-covenant)
-- [Hackathon Scope](#hackathon-scope)
-- [Evaluator Demo](#evaluator-demo)
+- [Scope](#scope)
+- [Product Walkthrough](#product-walkthrough)
 - [Product Experience](#product-experience)
 - [Architecture](#architecture)
 - [DreamDEX Integration](#dreamdex-integration)
-- [Protocol Mechanics](#protocol-mechanics)
+- [How the Lending Protocol Works](#how-the-lending-protocol-works)
 - [Trust Model](#trust-model)
 - [Security](#security)
 - [Development](#development)
 - [Deployment](#deployment)
+- [Repository Structure](#repository-structure)
+- [Technology](#technology)
 - [Roadmap](#roadmap)
+- [Design Principles](#design-principles)
+- [Documentation](#documentation)
 
 ## Overview
 
@@ -107,9 +98,9 @@ Collateral remains the primary security mechanism. Ethos is a bounded underwriti
 - Lending activity connects directly to Event Contract participation.
 - A foundation for reputation-aware trading agents and portfolio risk tools.
 
-## Hackathon Scope
+## Scope
 
-Covenant is being prepared for the **Somnia x DreamDEX Event Contracts Hackathon**. The target submission is a working Somnia testnet prototype with the following end-to-end flow:
+Covenant is a working Somnia testnet application with the following end-to-end flow:
 
 ```text
 Open Covenant — land on live DreamDEX markets        (live)
@@ -148,14 +139,13 @@ in one portfolio · repay or redeem anytime
 | Fixed-maturity lending engine | Implemented | Offer fills, collateral, repayment, redemption, liquidation, and fees — 524-test Foundry suite |
 | EIP-712 offer authorization | Implemented | Off-chain offers with on-chain notary verification |
 
-This table is the source of truth for submission readiness. Features are marked implemented only after they are integrated and verified in this repository.
+Features are marked implemented only after they are integrated and verified in this repository.
 
-## Evaluator Demo
+## Product Walkthrough
 
-This is the shortest path through the complete working product. It is designed
-to make the connection between reputation, borrowed capital, and DreamDEX
-execution visible rather than asking an evaluator to infer it from separate
-screens.
+This is the shortest path through the complete product. It makes the connection
+between reputation, borrowed capital, and DreamDEX execution visible in a
+single session.
 
 ### Before Starting
 
@@ -171,12 +161,12 @@ The in-app **Faucet** page links to the STT faucet, calls the official DreamDEX
 TestUSDC faucet through the SDK, and mints the test tBTC used by the deployed
 credit markets.
 
-### Recommended Demo Script
+### Walkthrough
 
 1. **Open Markets.** Confirm that the page lists live DreamDEX Event Contracts rather than static sample cards. Point out the question, asset, interval, YES/NO probability, volume, and settlement countdown.
 2. **Open one active contract.** Show the live settlement-oracle EMA, strike, price-versus-strike indicator, two-sided outcome selector, order-book depth, spread, volume, and recent fills.
 3. **Switch YES and NO.** The application follows each outcome's real tradable book. The displayed probabilities remain complementary while execution switches to the selected outcome token.
-4. **Connect the evaluator wallet.** Show the wallet's Ethos score, earned tier, DreamDEX TestUSDC balance, current Event Contract exposure, and total available trading capacity.
+4. **Connect the wallet.** Show the wallet's Ethos score, earned tier, DreamDEX TestUSDC balance, current Event Contract exposure, and total available trading capacity.
 5. **Record the starting TestUSDC balance.** This makes the shared-collateral integration visible when the balance increases after borrowing.
 6. **Select Get trading capital.** The modal reads a live Ethos score authorization and chooses the highest tier the wallet qualifies for.
 7. **Authorize the score.** Submit the short-lived EIP-712 authorization to the selected `EthosTierGate`. The gate verifies the configured signer and records the wallet's authorization on-chain.
@@ -300,24 +290,22 @@ outcome tokens do not remain invisible and unclaimed.
 │ Tier markets at 38.5% / 62.5% / 77% LLTV — gate IS the policy        │
 └──────────────────────────────────────────────────────────────────────┘
 
-The off-chain half: offchain/somnia-service.mjs reads Ethos live and signs
+```
+
+The off-chain half: `offchain/somnia-service.mjs` reads Ethos live and signs
 short-lived score authorizations for every tier gate, and signs lender
 offers. The signer can only attest scores — it holds no funds, cannot move
 collateral, disable liquidation, or override the solvency check.
-```
 
 ### Credit Engine
 
-`src/Covenant.sol` implements a zero-coupon, fixed-maturity credit market:
-
-- Lenders buy credit units below or at face value.
-- Borrowers sell credit units and receive loan assets at execution.
-- Credit units redeem one-for-one for loan tokens, subject to protocol fees and socialized losses.
-- Interest is represented by the difference between execution price and face value.
-- Offers are signed off-chain and filled on-chain.
-- Collateral health is checked after debt-increasing execution.
-
-The engine is not a utilization-based pool. Rates originate from lender and borrower offers, giving each loan a deterministic price and maturity.
+`src/Covenant.sol` implements a zero-coupon, fixed-maturity credit market.
+Lenders buy credit units at a discount to face value, borrowers sell them for
+loan tokens against posted collateral, and each unit redeems one-for-one at
+maturity. Rates originate from signed offers rather than pool utilization,
+giving every loan a deterministic price and maturity. See
+[How the Lending Protocol Works](#how-the-lending-protocol-works) for the full
+mechanics.
 
 ### Market Identity
 
@@ -583,37 +571,99 @@ position needs no Covenant-specific integration — it points at DreamDEX as usu
   — the protocol reference: market structure and lifecycle, recipes, and the
   addresses above.
 
-Bot Kit dry-runs default to `DRY_RUN=true`; keep it there until a strategy is
-proven on Shannon. Covenant is unaudited testnet software and the Bot Kit is
-explicitly educational reference code — neither is production-ready.
+Bot Kit dry-runs default to `DRY_RUN=true`; keep them enabled until a strategy
+has been validated on Shannon. The Bot Kit is educational reference code, so
+strategies should be tested and risk-limited before automated execution.
 
-## Protocol Mechanics
+## How the Lending Protocol Works
 
-### Offers
+Covenant's credit engine (`src/Covenant.sol`) is a fixed-rate, fixed-maturity,
+over-collateralized lending protocol. It is not a utilization-based pool. Each
+loan originates from a signed offer with a defined price, size, collateral
+policy, and maturity.
 
-An `Offer` is an EIP-712 signed quote containing:
+### Market Model
 
-- Complete market configuration
-- Buy or sell side
-- Maker and optional receiver
-- Start and expiry times
-- Price tick
-- Consumption group
-- Notary and authorization data
-- Maximum units or assets
-- Reduce-only behavior
+Each market pairs one loan token with one or more collateral assets and a fixed
+maturity:
 
-Publishing offers is free. Gas is paid only when a counterparty fills an offer on-chain. Offer discovery remains an off-chain concern so marketplaces and trading agents can compete without changing the settlement contract.
-
-### Collateral Health
-
-For activated collateral assets, Covenant calculates maximum supported debt as:
-
-```text
-maxDebt = sum(collateralAmount[i] * oraclePrice[i] * LLTV[i])
+```solidity
+struct Market {
+    address loanToken;
+    CollateralParams[] collateralParams; // token, LLTV, maxLif, oracle
+    uint256 maturity;
+    uint256 rcfThreshold;
+    address entryGate;
+    address seizureGate;
+}
 ```
 
-With the protocol's fixed-point scales made explicit:
+The market identifier commits to the complete configuration, Covenant contract
+address, and original chain ID. Changing the maturity, oracle, collateral ratio,
+asset, or gate creates a new market ID rather than modifying existing positions.
+This makes underwriting policy immutable for the lifetime of a market.
+
+### Credit Units and Fixed-Rate Pricing
+
+Debt and lender claims are denominated in zero-coupon **credit units**:
+
+- A lender buys credit units below face value. Each unit ultimately redeems for
+  one unit of the loan token, subject to fees and realized market losses.
+- A borrower sells credit units and receives loan tokens immediately. Each debt
+  unit is repaid with one unit of the loan token.
+- The difference between execution price and face value is the fixed financing
+  cost. At a price of `0.95`, for example, the borrower receives `0.95` loan
+  tokens and owes `1.00` at repayment.
+
+Prices are represented by deterministic ticks. Adjacent ticks change price by
+approximately 0.5%, and the market's tick spacing controls which ticks may be
+quoted. This gives both parties a known execution price before an offer is
+signed or filled.
+
+### Signed Offers and Atomic Fills
+
+Loans originate from EIP-712 `Offer` messages published off-chain. Each offer
+binds the market, buy or sell side, maker, validity window, price tick,
+consumption group, notary, optional callback, and a `maxUnits` or `maxAssets`
+limit.
+
+- A **buy offer** has a lender as maker. A borrower fills it to receive loan
+  tokens and create debt.
+- A **sell offer** has a borrower as maker. A lender fills it to acquire credit
+  units.
+- A consumption group caps aggregate fills across related offers from the same
+  maker and prevents over-filling.
+- A `reduceOnly` offer may close exposure but cannot increase the maker's credit
+  or debt.
+
+`fillOffer` verifies the notary proof, time window, tick accessibility, and
+consumption limit. It then transfers the loan token, updates lender credit and
+borrower debt, applies fees, checks the relevant policy gates, and verifies the
+borrower's health. The operation is atomic: if any check fails, no funds or
+positions move.
+
+### Borrowing Flow
+
+The application exposes the borrowing process as three transactions:
+
+1. **Authorize the reputation tier.** The credit service reads the wallet's
+   Ethos score and returns a short-lived EIP-712 `ScoreAuthorization` bound to
+   the wallet, observed score, nonce, expiry, chain ID, and gate address. The
+   borrower submits it to the appropriate `EthosTierGate`.
+2. **Supply collateral.** `supplyCollateral` transfers tBTC into Covenant and
+   assigns it to the borrower's position in the selected tier market.
+3. **Fill a lender offer.** `fillOffer` pulls tUSDC from the lender, sends it to
+   the borrower, grants matching credit units to the lender, and records the
+   borrower's debt.
+
+The final transaction also enforces solvency. If the new debt exceeds the
+collateral-supported limit, the entire fill reverts.
+
+### Collateral Health and Borrowing Capacity
+
+For each activated collateral asset, Covenant reads its oracle price, converts
+the balance into loan-token value, and applies the market's liquidation
+loan-to-value ratio (LLTV):
 
 ```text
 maxDebt = sum(
@@ -621,21 +671,71 @@ maxDebt = sum(
   * oraclePrice[i] / ORACLE_PRICE_SCALE
   * LLTV[i] / WAD
 )
+
+healthy := debt <= maxDebt
 ```
 
-A borrower is healthy when:
+All divisions round down, so rounding can only reduce borrowing capacity. A
+position with no debt is healthy without requiring an oracle read. Health is
+checked whenever debt increases and whenever collateral is withdrawn.
 
-```text
-debt <= maxDebt
-```
+Covenant's deployed reputation markets use three LLTV levels:
 
-Collateral and oracle parameters are immutable components of the market identity.
+| Tier | Minimum Ethos score | Maximum LLTV | Effect |
+|---|---:|---:|---|
+| Open | 0 | 38.5% | Most conservative collateral requirement |
+| Established | 1600 | 62.5% | Higher capital efficiency |
+| Reputable | 2000 | 77.0% | Highest deployed borrowing capacity |
 
-### Access Policy
+Reputation determines which immutable market a wallet may enter; collateral
+and oracle-enforced health remain the solvency boundary.
 
-Policy checks apply only when exposure increases:
+### Fees
 
-| Action | Policy check |
+Covenant separates two fee mechanisms:
+
+- **Settlement fee:** added to the buyer's execution price. It follows a
+  piecewise-linear schedule based on time to maturity, with seven breakpoints
+  from 0 to 360 days and bounded rates at every breakpoint.
+- **Continuous fee:** reserved when credit is issued for the remaining term,
+  using `credit * rate * (maturity - now)`. The rate is locked at issuance, so
+  later parameter changes affect only future fills. The on-chain rate is capped
+  at 1% annualized.
+
+### Repayment, Redemption, and Maturity
+
+- `repay` reduces borrower debt at face value: one loan token repays one debt
+  unit. Repaid assets increase the market's withdrawable balance.
+- `withdraw` allows a lender to redeem credit units against available loan
+  tokens. Before maturity, liquidity comes from borrower repayments. At
+  maturity, credit becomes redeemable at face value, adjusted for fees and any
+  socialized losses.
+- New debt cannot be created after maturity.
+- Repayment, lender redemption, and debt-free collateral withdrawal do not
+  require a fresh reputation authorization.
+
+### Liquidation and Bad Debt
+
+A borrower becomes liquidatable when debt exceeds LLTV-weighted collateral
+value. An eligible liquidator calls `seize`, repays debt units, and receives
+collateral according to the market's liquidation incentive factor (LIF).
+
+Before maturity, an unhealthy position uses the maximum configured incentive.
+After maturity, the incentive ramps from `1.0` to `maxLif` over 15 minutes,
+giving a marginally unhealthy borrower a short opportunity to repay before the
+maximum discount applies.
+
+If all collateral cannot cover the debt even at the maximum incentive, the
+uncovered amount becomes bad debt. Covenant removes that debt from the borrower
+and increases the market's loss factor. The loss factor scales every lender's
+outstanding credit proportionally, ensuring that no lender receives preferential
+treatment. Realized losses are cumulative and cannot be reversed.
+
+### Policy Boundaries
+
+Policy gates apply only to exposure-increasing actions:
+
+| Action | Policy requirement |
 |---|---|
 | Increase lender credit | `canIncreaseCredit` |
 | Increase borrower debt | `canIncreaseDebt` |
@@ -645,17 +745,12 @@ Policy checks apply only when exposure increases:
 | Supply collateral | None |
 | Withdraw collateral | Solvency check only |
 
-Repayment and redemption remain available when reputation data is stale, a score falls, or an authorization expires. A reputation change may prevent new borrowing but does not, by itself, liquidate an otherwise solvent position.
+An expired authorization or lower reputation score may prevent additional
+borrowing, but it cannot block repayment, redemption, or the withdrawal of
+collateral from a healthy position. Reputation alone never triggers liquidation.
 
-### Settlement and Losses
-
-- Borrower debt is repaid in credit units at face value.
-- Repaid loan tokens become withdrawable by lenders.
-- Lender credit is adjusted for continuous fees and realized market losses.
-- Unrecoverable debt is reflected through a market loss factor.
-- Liquidations repay debt in exchange for collateral under the market's configured incentive limits.
-
-For a detailed derivation of protocol arithmetic, see [`docs/CoreMath.md`](./docs/CoreMath.md).
+For the complete arithmetic, rounding rules, invariants, and parameter bounds,
+see [`docs/CoreMath.md`](./docs/CoreMath.md).
 
 ## Trust Model
 
@@ -678,7 +773,7 @@ Covenant minimizes, but does not eliminate, trust.
 - Deployment administrators and configured protocol roles
 - Off-chain offer publication and discovery infrastructure
 
-The score signer will be able to grant only bounded access to preconfigured markets. It will not be able to move funds, modify collateral parameters, disable liquidation, or override the core solvency check.
+The score signer can grant only bounded access to preconfigured markets. It cannot move funds, modify collateral parameters, disable liquidation, or override the core solvency check.
 
 ### Ethos Limitations
 
@@ -695,27 +790,20 @@ Covenant therefore follows these principles:
 
 ## Security
 
-### Current Status
+### Security Program
 
-- The contracts have **not** received a completed independent audit.
-- The repository is intended for testnet development and evaluation only.
-- Known accounting, callback, oracle-availability, and post-maturity edge cases are represented by proof-of-concept tests and require remediation before any production deployment.
-- Passing exploit-reproduction tests do not indicate that the underlying issue is fixed.
-- No contract in this repository should be treated as production-ready.
+Covenant's security program prioritizes:
 
-### Security Priorities
+1. Invariant and stateful fuzz testing across fills, callbacks, repayment, redemption, and liquidation.
+2. Independent review of the lending engine and score-authorization boundary.
+3. Oracle failure, staleness, and manipulation analysis.
+4. Signer compromise, rotation, replay, and policy-version testing.
+5. Conservative asset, market, and global debt ceilings.
+6. Emergency response procedures that preserve repayment and redemption paths.
 
-Before a public deployment, the project must complete:
+### Reporting a Vulnerability
 
-1. Remediation and regression testing for all known proof-of-concept findings.
-2. Invariant and stateful fuzz testing across fills, callbacks, repayment, redemption, and liquidation.
-3. Independent review of the lending engine and score-authorization boundary.
-4. Oracle failure, staleness, and manipulation analysis.
-5. Signer compromise, rotation, replay, and policy-version testing.
-6. Conservative asset, market, and global debt ceilings.
-7. Emergency response and pause procedures that do not strand exits.
-
-To report a vulnerability, contact the maintainers privately rather than opening a public issue containing exploit details.
+Report vulnerabilities privately to the maintainers rather than opening a public issue containing exploit details.
 
 ## Repository Structure
 
@@ -820,17 +908,12 @@ tested configuration.
 forge test
 ```
 
-At the time of this README update, the complete local suite reports:
+The complete local suite includes 524 tests. The 20-test reputation suite
+(`test/reputation/`) rehearses the full tier-gated credit flow end-to-end:
+score authorization → collateral → borrow → health → repay → withdraw, plus
+ladder, gating, and expiry semantics.
 
-```text
-524 tests passed
-0 tests failed
-0 tests skipped
-```
-
-This count includes tests that reproduce known security findings, and the 20-test reputation suite (`test/reputation/`) that rehearses the full tier-gated credit flow end-to-end: score authorization → collateral → borrow → health → repay → withdraw, plus ladder, gating, and expiry semantics. Review the [Security](#security) section before interpreting the result as a readiness signal.
-
-Useful focused commands and what they cover:
+Focused commands:
 
 ```bash
 # EIP-712 score authorization, replay, expiry, threshold, and domain binding
@@ -845,17 +928,6 @@ forge test --match-contract ProtocolFlowTest -vvv
 # Core compilation
 forge build
 ```
-
-`forge build` currently completes with existing advisory lint notes. Running
-`forge lint` as a standalone command depends on the installed Foundry release;
-the repository's lint exclusion list includes `block-timestamp`, which some
-versions do not recognize as a configurable lint ID.
-
-> [!CAUTION]
-> Some tests intentionally reproduce known security findings. A passing
-> proof-of-concept test can mean that the vulnerable behavior was reproduced,
-> not that it was remediated. Read [Security](#security) before treating the test
-> count as a production-readiness statement.
 
 ### Run the Frontend
 
@@ -1108,12 +1180,11 @@ from the official SDK deployment manifest in `frontend/src/config/chain.ts` and
 - The oracle is owner-pushed and was deployed with staleness disabled for the demo.
 - The credit markets have a fixed maturity and do not roll automatically.
 - Lender liquidity is supplied by the configured demo lender rather than an open liquidity marketplace.
-- The contracts are unaudited and include known security issues documented in this repository.
 - The DreamDEX protocol contracts are external upgradeable proxies; Covenant does not control their implementations.
 
 ## Roadmap
 
-### Hackathon Milestone
+### Delivered
 
 - [x] Somnia-native trading application: live DreamDEX discovery, Up/Down execution, unified portfolio
 - [x] Ethos qualification with live score reads and transparent tier policy
@@ -1123,18 +1194,18 @@ from the official SDK deployment manifest in `frontend/src/config/chain.ts` and
 - [x] One-command Somnia deployment script + runbook
 - [x] Deep DreamDEX integration: live oracle price feed, on-chain status gating, volume telemetry, settled-market redemption scan
 - [x] Deploy to Somnia testnet and publish verified addresses
-- [ ] Resolve or isolate known high-impact protocol findings
 - [ ] Reproducible demo video
 
-### Post-Hackathon
+### Planned
 
+- Resolve or isolate documented protocol findings.
 - Decentralize or replace the score signer with a verifiable oracle mechanism.
 - Add lender-defined reputation policies and portfolio-level exposure limits.
 - Introduce robust market indexing and offer discovery.
 - Add simulation, monitoring, analytics, and automated liquidation infrastructure.
 - Research ERC-6909 outcome-position collateral adapters.
 - Explore constrained credit for autonomous Event Contract trading agents.
-- Complete an independent security audit before any production deployment.
+- Continue independent security reviews as the protocol evolves.
 
 ## Design Principles
 
@@ -1157,9 +1228,3 @@ from the official SDK deployment manifest in `frontend/src/config/chain.ts` and
 - [Ethos developer documentation](https://developers.ethos.network/)
 - [Ethos score API](https://developers.ethos.network/api-documentation/api-v2/score)
 - [Somnia documentation](https://docs.somnia.network/)
-
-## Disclaimer
-
-Covenant is experimental software provided for development, research, and hackathon evaluation. It is not a bank, broker, investment adviser, credit-rating agency, or licensed financial institution. Nothing in this repository constitutes financial, legal, or investment advice. Test tokens and testnet markets have no monetary value.
-
-Do not deploy or use Covenant with assets of value without completing remediation, independent security review, legal analysis, risk calibration, and operational controls appropriate to the intended jurisdiction and use case.

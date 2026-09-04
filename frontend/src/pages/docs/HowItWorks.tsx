@@ -1,7 +1,7 @@
 import { Link } from "react-router-dom";
 import { IconCheck, IconArrowRight, IconShield, IconLayers } from "../../components/icons";
 import { ETHOS_TIERS } from "../../config/dreamdex";
-import { DocPage, Section, StepCard, LayerCard } from "./_primitives";
+import { DocPage, Section, StepCard, LayerCard, Note, Prose } from "./_primitives";
 
 /**
  * Plain-language walkthrough of the whole stack, for people who prefer clicking to reading.
@@ -70,6 +70,212 @@ export function HowItWorks() {
             emphasized
           />
         </div>
+      </Section>
+
+      <Section
+        title="The lending model"
+        subtitle="Covenant is a fixed-rate, fixed-maturity credit market. A loan is created from a signed price, not from a utilization curve."
+      >
+        <div className="grid md:grid-cols-3 gap-5">
+          <div className="card p-6 space-y-3">
+            <div className="stat-label">Lender</div>
+            <div className="card-title">Buys credit units</div>
+            <p className="text-body-sm text-slate-300 leading-relaxed">
+              The lender supplies the loan token and receives a zero-coupon claim. One credit
+              unit is redeemable for one loan token at face value, adjusted for protocol fees
+              and any realized market loss.
+            </p>
+          </div>
+          <div className="card p-6 space-y-3 border-brand-500/30">
+            <div className="stat-label">Execution price</div>
+            <div className="card-title">The discount is the interest</div>
+            <p className="text-body-sm text-slate-300 leading-relaxed">
+              At a price of <code className="code-inline">0.95</code>, the borrower receives
+              0.95 loan tokens and owes 1.00 at repayment. That difference fixes the financing
+              cost for the remaining term.
+            </p>
+          </div>
+          <div className="card p-6 space-y-3">
+            <div className="stat-label">Borrower</div>
+            <div className="card-title">Sells credit units</div>
+            <p className="text-body-sm text-slate-300 leading-relaxed">
+              The borrower receives the loan token immediately and records matching debt units.
+              Each debt unit is repaid with one unit of the loan token.
+            </p>
+          </div>
+        </div>
+
+        <Note title="Every market has immutable terms">
+          <p>
+            Loan token, collateral assets, oracle, LLTV, maturity, and gate addresses are all
+            included in the market id. Changing any one of them describes a new market rather
+            than altering existing lender claims or borrower debt.
+          </p>
+        </Note>
+      </Section>
+
+      <Section
+        title="How a borrower receives capital"
+        subtitle="Qualification, collateral custody, and loan execution are separate on-chain steps. The final fill either completes in full or reverts in full."
+      >
+        <div className="grid md:grid-cols-3 gap-5">
+          <StepCard
+            n={1}
+            title="Authorize the tier"
+            body="The service signs the observed Ethos score for one wallet, chain, gate, nonce, and expiry. The borrower submits it to the selected EthosTierGate."
+            hint="EthosTierGate.authorize"
+          />
+          <StepCard
+            n={2}
+            title="Supply collateral"
+            body="The borrower approves tBTC and deposits it into the selected market. Covenant records the amount against that borrower's position."
+            hint="Covenant.supplyCollateral"
+          />
+          <StepCard
+            n={3}
+            title="Fill and borrow"
+            body="Covenant pulls tUSDC from the lender, sends it to the borrower, grants credit units to the lender, records borrower debt, and checks the resulting health."
+            hint="Covenant.fillOffer"
+            emphasized
+          />
+        </div>
+
+        <div className="card p-5 overflow-x-auto">
+          <pre className="text-body-sm font-mono text-slate-300 leading-relaxed whitespace-pre">
+{`signed lender offer + valid tier + posted collateral
+                         |
+                         v
+                     fillOffer
+                         |
+              +----------+-----------+
+              |                      |
+       lender receives          borrower receives
+        credit units                  tUSDC
+              |                      |
+              +----------+-----------+
+                         |
+                  health check passes
+                         |
+                         v
+                  debt position opens`}
+          </pre>
+        </div>
+      </Section>
+
+      <Section
+        title="Borrowing capacity and health"
+        subtitle="Reputation selects a collateral policy; the oracle and LLTV enforce solvency on-chain."
+      >
+        <div className="card p-5 overflow-x-auto">
+          <pre className="text-body-sm font-mono text-slate-300 leading-relaxed whitespace-pre">
+{`maxDebt = sum(
+  collateralAmount[i]
+  * oraclePrice[i] / ORACLE_PRICE_SCALE
+  * LLTV[i] / WAD
+)
+
+healthy := debt <= maxDebt`}
+          </pre>
+        </div>
+
+        <div className="grid md:grid-cols-2 gap-5">
+          <div className="card p-6 space-y-3">
+            <div className="card-title">When health is checked</div>
+            <ul className="space-y-2 text-body-sm text-slate-300">
+              <li>After a fill increases borrower debt</li>
+              <li>Before collateral is withdrawn</li>
+              <li>When a liquidator tests whether a position is seizable</li>
+            </ul>
+            <p className="text-body-sm text-subtle leading-relaxed">
+              The calculation rounds down, so rounding can only reduce borrowing capacity.
+              A position with zero debt is healthy without an oracle read.
+            </p>
+          </div>
+          <div className="card p-6 space-y-3 border-brand-500/25">
+            <div className="card-title">What reputation does not do</div>
+            <p className="text-body-sm text-slate-300 leading-relaxed">
+              Reputation never replaces collateral and never directly liquidates a position.
+              It selects the market a wallet may enter — 38.5%, 62.5%, or 77% maximum LTV —
+              while the oracle-priced health check remains the enforcement boundary.
+            </p>
+          </div>
+        </div>
+      </Section>
+
+      <Section
+        title="Fees, repayment, and maturity"
+        subtitle="The execution price determines interest; protocol fees are separate and bounded, and exits remain available without a fresh score authorization."
+      >
+        <div className="card">
+          <div className="def-row">
+            <div className="def-label">Settlement fee</div>
+            <div className="def-value">
+              Added to the buyer's execution price using a piecewise-linear schedule based on
+              time to maturity. The schedule has seven bounded breakpoints from 0 to 360 days.
+            </div>
+          </div>
+          <div className="def-row">
+            <div className="def-label">Continuous fee</div>
+            <div className="def-value">
+              Reserved when credit is issued for the remaining term. Its rate is locked at
+              issuance, capped at 1% annualized, and cannot be raised retroactively.
+            </div>
+          </div>
+          <div className="def-row">
+            <div className="def-label">Repayment</div>
+            <div className="def-value">
+              <code className="code-inline">repay</code> returns one loan token per debt unit.
+              The repaid assets enter the market's withdrawable balance for lenders.
+            </div>
+          </div>
+          <div className="def-row">
+            <div className="def-label">Redemption</div>
+            <div className="def-value">
+              <code className="code-inline">withdraw</code> exchanges lender credit for
+              available loan tokens. At maturity, credit is redeemable at face value, adjusted
+              for fees and any socialized loss. New debt cannot be created after maturity.
+            </div>
+          </div>
+        </div>
+      </Section>
+
+      <Section
+        title="Liquidation and market losses"
+        subtitle="Only an unhealthy collateral position can be liquidated. If collateral cannot cover the debt, the remaining loss is shared proportionally across lenders."
+      >
+        <div className="grid md:grid-cols-3 gap-5">
+          <StepCard
+            n={1}
+            title="Health falls below the limit"
+            body="Debt exceeds LLTV-weighted collateral value because debt increased, collateral was withdrawn, or the oracle price moved."
+            hint="Covenant.isHealthy"
+          />
+          <StepCard
+            n={2}
+            title="A liquidator seizes"
+            body="An eligible liquidator repays debt units and receives collateral at the market's liquidation incentive. The borrower does not need to approve the action."
+            hint="Covenant.seize"
+            emphasized
+          />
+          <StepCard
+            n={3}
+            title="Any shortfall is socialized"
+            body="Uncovered debt increases the market loss factor, scaling every lender's outstanding credit by the same proportional amount."
+            hint="marketState.lossFactor"
+          />
+        </div>
+
+        <Prose>
+          <p>
+            Before maturity, an unhealthy position uses the maximum configured liquidation
+            incentive. After maturity, the incentive ramps from 1.0 to its maximum over 15
+            minutes, giving a marginally unhealthy borrower a short opportunity to repay first.
+          </p>
+          <p>
+            Losses are cumulative and cannot be reversed. For exact rounding, fee curves, and
+            loss-factor derivations, continue to the <Link to="/docs/math" className="link">Core math</Link> page.
+          </p>
+        </Prose>
       </Section>
 
       {/* ── Getting qualified ───────────────────────────────────────────────

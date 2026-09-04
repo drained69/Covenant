@@ -13,82 +13,95 @@ import { cents, commandArgs, escapeHtml, money, remaining, shortAddress } from "
 import { StateStore } from "./state.js";
 import { WalletCustodyTool } from "./wallet-custody.js";
 
-const WELCOME = `<b>Welcome to Covenant</b>
+const WELCOME = `<b>Covenant</b> — trade DreamDEX Event Contracts on Somnia testnet.
 
-Your Telegram command center for <b>DreamDEX Event Contracts</b> on <b>Somnia Shannon testnet</b> (chain <code>50312</code>).
+Binary <b>YES / NO</b> markets. Check live prices and your positions here, then sign every trade in your own wallet.
 
-<b>What Covenant does</b>
-Covenant helps you trade binary Event Contracts on DreamDEX. Each market asks a question with two outcomes: <b>YES</b> or <b>NO</b>. You can inspect the live probability, order book, expiry, your Ethos credibility, and your available collateralized capacity before trading.
+<b>Connect wallet</b> to see your balances, Ethos score, and capacity — or tap <b>Markets</b> to browse first.
 
-<b>How to get started</b>
-1. Tap <b>Connect wallet</b> — Covenant opens inside Telegram and shows a one-time link code.
-2. Open the verification page in any browser — your wallet app's built-in browser, a desktop browser, or by scanning the QR with another device.
-3. Connect your wallet there and sign one ownership message. It does not move funds or approve a transaction.
-4. Return here — your verified wallet unlocks wallet, score, capacity, and position views.
-5. Use <b>Markets</b> to choose an Event Contract, then open it in Covenant to review and sign a trade.
+<i>Testnet only. The bot never asks for a private key or seed phrase.</i>`;
 
-<b>What Ethos means</b>
-Ethos provides a reputation signal. Covenant uses that signal to determine your credit tier and potential borrowing terms. <b>Collateral remains the safety foundation; Ethos never replaces it.</b>
+// The persistent "Home" button and /start are the deliberate "tell me about
+// the product" actions, so they get the full picture: what Covenant is, how
+// reputation becomes trading capacity, and a numbered path to using it. This
+// is distinct from `menu:home` (the "← Main menu" back button peppered
+// through the UI), which stays on the short WELCOME so a navigation tap never
+// dumps an essay.
+const HOME_OVERVIEW = `<b>Covenant</b> — reputation-backed trading for <b>DreamDEX Event Contracts</b>
+<i>Somnia Shannon testnet · chain</i> <code>50312</code>
 
-<b>What you can do here</b>
-• Browse live DreamDEX markets and prices
-• Inspect YES/NO bids and asks
-• View your TestUSDC and STT balances
-• View your Ethos credibility and Covenant tier
-• Check available trading capacity
-• Monitor open positions and mark value
-• Preview an order before signing it on Covenant
+<blockquote>Covenant is a credit layer on DreamDEX. Your on-chain reputation earns you trading capacity; your collateral keeps every position safe. You trade binary markets, and your own wallet signs every transaction.</blockquote>
 
-<b>Somnia testnet only</b>
-Use testnet funds such as TestUSDC and STT. Do not send production funds here. Testnet balances have no real-world value.
+<b>━━ What you trade ━━</b>
+Event Contracts are <b>binary markets</b>. Each asks a question — "Will BTC close above $X?" — with two sides:
+• <b>YES</b> pays 1 if it happens
+• <b>NO</b> pays 1 if it doesn't
+A YES price of <b>62¢</b> means the market implies a <b>62%</b> chance. You profit when your side wins, or when you sell it for more than you paid.
 
-<b>Security</b>
-This bot never asks for private keys or seed phrases. Never paste them into Telegram, the Mini App, or a support chat. Wallet signing stays with your wallet provider.
+<b>━━ Reputation → capacity ━━</b>
+Covenant reads your <b>Ethos</b> credibility and maps it to a credit tier:
+• <b>Open</b> — everyone · up to 38.5% LTV
+• <b>Established</b> — 1600+ · up to 62.5% LTV
+• <b>Reputable</b> — 2000+ · up to 77% LTV
+A higher tier lets the same collateral back a larger position. <b>Reputation only sets the terms — collateral is always the safety net and never replaces it.</b>
 
-Use the buttons below, or tap the persistent <b>Home</b> button at any time.`;
+<b>━━ How to use it ━━</b>
+<b>1.</b> Tap <b>Connect wallet</b> — sign one ownership message; no funds move, no key is shared.
+<b>2.</b> Check <b>Wallet</b>, <b>Score</b>, and <b>Capacity</b> to see your balances, tier, and trading room.
+<b>3.</b> Open <b>Markets</b> to browse live contracts — price, depth, and expiry.
+<b>4.</b> Preview a trade with <code>/trade 1 YES buy 5</code>, then sign it on Covenant.
+<b>5.</b> Track <b>Positions</b> and redeem winning outcomes at settlement.
 
-const HELP = `<b>Covenant × DreamDEX</b>
+<b>━━ From this bot ━━</b>
+Browse markets and YES/NO books · view TestUSDC + STT balances · check Ethos tier and capacity · monitor positions and mark value · preview orders before signing.
 
-<b>Network</b>
-Somnia Shannon testnet · chain <code>50312</code>
-Testnet only — use TestUSDC for trading collateral and STT for gas.
+<b>━━ Safety ━━</b>
+Testnet only — TestUSDC and STT have no real value. The bot <b>never</b> asks for a private key or seed phrase; signing stays in your wallet. Never paste a seed phrase into Telegram, the Mini App, or any chat.`;
+
+// One canonical wallet-link explanation, reused by /connect, /start connect,
+// and the menu:connect callback. Three separate copies had drifted apart.
+const CONNECT_TEXT = `<b>Connect your wallet</b>
+
+Tap <b>Connect wallet</b> below. Covenant opens with a one-time code and QR — open it in your wallet's own browser, or scan from another device, and sign one ownership message.
+
+<i>A signature, not a transaction. No funds move and no key is shared.</i>`;
+
+const HELP = `<b>Commands</b>
 
 <b>Markets</b>
 /markets — live Event Contracts
-/market &lt;#&gt; — market detail
-/book &lt;#&gt; [YES|NO] — order book
+/market 1 — one market
+/book 1 YES — order book
 
-<b>Your wallet</b>
-/link &lt;0x…&gt; — add a public address for read-only lookup
-/unlink — remove it
-/wallet — balances and linked address
-/score — Ethos score and tier
-/capacity — Covenant trading capacity
-/positions — DreamDEX Event Contract positions
+<b>Your wallet</b> — needs Connect wallet
+/wallet — balances
+/score — Ethos credibility
+/capacity — trading capacity
+/positions — open positions
+/link 0x… — add a read-only address · /unlink to remove
 
-<b>Trading</b>
-/trade &lt;#&gt; &lt;YES|NO&gt; &lt;buy|sell&gt; &lt;shares&gt; [price]
-Creates a safe preview and opens Covenant for wallet signing. Example:
-<code>/trade 1 YES buy 5 0.62</code>
+<b>Trade</b>
+/trade 1 YES buy 5 0.62 — preview, then sign on Covenant
 
-<b>Wallet verification</b>
-The Connect wallet Mini App proves that the wallet belongs to your Telegram account with one non-transaction signature. A pasted address is never treated as verified ownership.
+<i>Testnet only. Never share a private key or seed phrase.</i>`;
 
-<b>Operator only</b>
-/execute uses the dedicated bot wallet only. It is disabled by default and never trades a user's linked wallet.
-
-Never send private keys or seed phrases in Telegram.`;
-
+// Ordered by the user's journey, not alphabetically or by internal grouping:
+//   1. Connect wallet — the primary gate, full-width so it reads as the hero
+//      action a new user takes right after the overview.
+//   2. Explore & learn — Live markets and How it works need no wallet.
+//   3. Your account — capacity, positions, score all require a linked wallet,
+//      so they sit together below the gate that unlocks them.
+//   4. Help — support, last.
 const MAIN_MENU = new InlineKeyboard()
+  .text("🔗 Connect wallet", "menu:connect")
+  .row()
   .text("Live markets", "menu:markets")
-  .text("Connect wallet", "menu:connect")
+  .text("How it works", "menu:how")
   .row()
   .text("My capacity", "menu:capacity")
   .text("My positions", "menu:positions")
   .row()
   .text("Ethos score", "menu:score")
-  .text("How it works", "menu:how")
-  .row()
   .text("Help & safety", "menu:help");
 
 const BACK_MENU = new InlineKeyboard().text("← Main menu", "menu:home");
@@ -98,19 +111,15 @@ const BACK_MENU = new InlineKeyboard().text("← Main menu", "menu:home");
    away with messages. The bottom keyboard gives users a stable escape hatch
    from any command without requiring them to remember /start. */
 const HOME_KEYBOARD = new Keyboard()
-  .text("Home")
-  .row()
   .text("Markets")
   .webApp("Connect wallet", config.webAppUrl)
-  .text("Wallet")
-  .text("Capacity")
   .row()
-  .text("Score")
+  .text("Wallet")
   .text("Positions")
-  .text("Help")
+  .text("Home")
   .resized()
   .persistent()
-  .placeholder("Choose an action");
+  .placeholder("Markets · Connect wallet · Wallet");
 
 function webMenu(path = "/markets"): InlineKeyboard {
   return new InlineKeyboard()
@@ -134,11 +143,20 @@ async function editOrReply(context: Context, text: string, keyboard: InlineKeybo
   }
 }
 
+/* The one Connect-wallet keyboard: the Mini App launcher plus a route home.
+   Used by /connect, /start connect, and menu:connect so the button set never
+   drifts between entry points. */
+function connectKeyboard(): InlineKeyboard {
+  return new InlineKeyboard()
+    .webApp("Connect wallet", config.webAppUrl)
+    .row()
+    .text("← Main menu", "menu:home");
+}
+
 function walletRecoveryMenu(): InlineKeyboard {
   return new InlineKeyboard()
-    .webApp("Connect wallet in Telegram", config.webAppUrl)
+    .webApp("Connect wallet", config.webAppUrl)
     .row()
-    .text("How to link", "menu:connect")
     .text("← Main menu", "menu:home");
 }
 
@@ -303,11 +321,33 @@ export function createTelegramBot(ctx: BotKitContext, store: StateStore): Bot {
     }
   });
 
-  bot.command("start", (context) =>
-    context.reply(WELCOME, {
+  // /start recognises a `?start=connect` deeplink payload (from the web
+  // fallback's "Open the Covenant bot" button) and drops straight into the
+  // wallet-link screen. Any other payload shows the same full overview as the
+  // persistent Home button, but with the reply keyboard (not MAIN_MENU) as
+  // markup: /start is the first message a new user receives, so it is what
+  // establishes the persistent bottom keyboard.
+  bot.command("start", async (context) => {
+    const payload = (context.match ?? "").trim().toLowerCase();
+
+    if (payload === "connect") {
+      await context.reply(CONNECT_TEXT, {
+        parse_mode: "HTML",
+        reply_markup: connectKeyboard(),
+      });
+      return;
+    }
+
+    await context.reply(HOME_OVERVIEW, {
       parse_mode: "HTML",
       reply_markup: HOME_KEYBOARD,
-    }).then(() => context.reply("Choose a destination:", { reply_markup: MAIN_MENU })),
+    });
+  });
+
+  // /connect — typed shortcut to the same wallet-link surface, for users who
+  // arrive via a deeplink, search, or muscle memory.
+  bot.command("connect", (context) =>
+    context.reply(CONNECT_TEXT, { parse_mode: "HTML", reply_markup: connectKeyboard() }),
   );
   bot.command("help", (context) =>
     context.reply(HELP, { parse_mode: "HTML", reply_markup: HOME_KEYBOARD }),
@@ -332,8 +372,10 @@ export function createTelegramBot(ctx: BotKitContext, store: StateStore): Bot {
   /* The persistent keyboard mirrors the inline menu for users who prefer
      Telegram's native bottom navigation. These are intentionally aliases of
      the same helpers/commands, not a second behavioral path. */
+  // The persistent Home button = the full product overview + how-to. The
+  // inline "← Main menu" back button (menu:home) stays on the short WELCOME.
   bot.hears("Home", (context) =>
-    context.reply(WELCOME, { parse_mode: "HTML", reply_markup: MAIN_MENU }),
+    context.reply(HOME_OVERVIEW, { parse_mode: "HTML", reply_markup: MAIN_MENU }),
   );
   bot.hears("Markets", async (context) => {
     await context.reply("Loading live DreamDEX markets…");
@@ -396,18 +438,13 @@ export function createTelegramBot(ctx: BotKitContext, store: StateStore): Bot {
   });
   bot.callbackQuery("menu:connect", async (context) => {
     await context.answerCallbackQuery();
-    const connector = new InlineKeyboard().webApp("Connect wallet in Telegram", config.webAppUrl);
-    await editOrReply(
-      context,
-      `<b>Connect your wallet safely</b>\n\n1. Open the secure connector below inside Telegram — it shows a one-time link code and QR.\n2. Open the verification page in your wallet's browser, any desktop browser, or scan the QR with another device.\n3. Connect your wallet there and sign one human-readable ownership message. It cannot move funds.\n4. Return here — your wallet is verified for your Telegram account.\n\nThe bot never needs your private key. Telegram only receives proof of ownership.`,
-      connector.row().text("← Main menu", "menu:home"),
-    );
+    await editOrReply(context, CONNECT_TEXT, connectKeyboard());
   });
   bot.callbackQuery("menu:how", async (context) => {
     await context.answerCallbackQuery();
     await editOrReply(
       context,
-      `<b>How Covenant works</b>\n\n<b>01 · Discover</b>\nScan live DreamDEX Event Contracts and compare YES/NO prices, depth, volume, and expiry.\n\n<b>02 · Capacity</b>\nYour collateral remains the safety foundation. Ethos provides a reputation signal that can influence your Covenant tier.\n\n<b>03 · Position</b>\nChoose YES or NO and review the order on Covenant before signing with your wallet.\n\n<b>04 · Settlement</b>\nTrack the market to resolution and redeem winning outcome tokens.`,
+      `<b>How it works</b>\n\n<b>1 · Discover</b> — compare YES/NO prices, depth, and expiry across live markets.\n<b>2 · Capacity</b> — collateral is the safety net; your Ethos score sets the terms.\n<b>3 · Position</b> — pick a side and sign the order in your own wallet.\n<b>4 · Settle</b> — track to resolution and redeem winning tokens.`,
       BACK_MENU,
     );
   });

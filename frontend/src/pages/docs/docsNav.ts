@@ -40,7 +40,7 @@ export const DOCS_NAV: DocsNavItem[] = [
     to: "/docs/how-it-works",
     label: "How it works",
     blurb:
-      "The offer lifecycle end to end — signing off-chain, filling on-chain, and tracking a position into settlement.",
+      "The lending lifecycle end to end — credit pricing, borrowing, collateral health, fees, repayment, liquidation, and settlement.",
   },
   {
     to: "/docs/architecture",
