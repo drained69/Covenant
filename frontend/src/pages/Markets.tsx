@@ -1,4 +1,4 @@
-import { useDreamDexMarkets, useVenueTail } from "../hooks/useDreamDex";
+import { useDreamDexMarkets } from "../hooks/useDreamDex";
 import { MarketTable } from "../components/MarketTable";
 
 /**
@@ -12,7 +12,6 @@ import { MarketTable } from "../components/MarketTable";
  */
 export function Markets() {
   const { data: markets, isLoading, isError } = useDreamDexMarkets();
-  const tail = useVenueTail();
 
   const liveCount = markets?.length ?? 0;
 
@@ -44,9 +43,19 @@ export function Markets() {
       <section id="live-markets" className="shell py-6 lg:py-8">
         <div className="mb-3 flex flex-wrap items-end justify-between gap-3">
           <h2 className="text-h3 text-slate-50">Live markets</h2>
+          {/* This list is sourced from the DreamDEX indexer (market rows +
+              lastPrice), NOT the WebSocket tail — the tail only streams on a
+              market's detail page, where a book is actually watched. So the
+              indicator reflects whether venue DATA loaded, not WS-socket
+              state: reading `tail.connected` here showed a permanent
+              "Reconnecting" while the list was fully populated and live. */}
           <div className="flex items-center gap-2 text-micro text-subtle" aria-live="polite">
-            <span className={tail.connected ? "status-dot-ok" : "status-dot-warn"} />
-            {tail.connected ? "Live venue feed" : "Reconnecting to venue"}
+            <span
+              className={
+                liveCount > 0 ? "status-dot-ok" : isError ? "status-dot-warn" : "status-dot-idle"
+              }
+            />
+            {liveCount > 0 ? "Live from DreamDEX" : isError ? "Venue unavailable" : "Loading markets…"}
           </div>
         </div>
         {markets && markets.length > 0 ? (
@@ -86,7 +95,6 @@ function Vital({
   );
 }
 
-/** Indexer unreachable: state it plainly, keep the page's shape. */
 /**
  * The first-paint stand-in for the market list.
  *
