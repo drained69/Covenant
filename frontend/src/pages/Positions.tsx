@@ -463,7 +463,7 @@ function CreditCard({ tier, primary }: { tier: TierKey; primary: boolean }) {
   }
 
   async function withdrawCollateral() {
-    const free = (position.maxDebt ?? 0n) > debt ? collateral : 0n;
+    const free = position.excessCollateral;
     if (free <= 0n) return;
     await send("Withdraw collateral", {
       address: CREDIT.covenant!,
@@ -511,7 +511,7 @@ function CreditCard({ tier, primary }: { tier: TierKey; primary: boolean }) {
     }
   }
 
-  const withdrawable = (position.maxDebt ?? 0n) > debt ? collateral : 0n;
+  const withdrawable = position.excessCollateral;
 
   return (
     <div className="card">

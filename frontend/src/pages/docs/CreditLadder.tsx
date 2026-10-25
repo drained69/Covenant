@@ -2,6 +2,7 @@ import { Link } from "react-router-dom";
 import { DocPage, Section, Prose, Note } from "./_primitives";
 import { IconArrowRight } from "../../components/icons";
 import { ETHOS_TIERS } from "../../config/dreamdex";
+import { IS_MEZO } from "../../config/target";
 
 /**
  * Credit tiers (docs).
@@ -24,9 +25,9 @@ export function CreditLadder() {
       >
         <div className="card overflow-hidden">
           <div className="card-header">
-            <div className="card-title">Testnet tier policy</div>
+            <div className="card-title">{IS_MEZO ? "Mezo testnet markets" : "Testnet tier policy"}</div>
             <span className="text-micro font-semibold uppercase text-muted">
-              Illustrative
+              {IS_MEZO ? "Live" : "Illustrative"}
             </span>
           </div>
           <table className="w-full text-body-sm">
@@ -45,7 +46,7 @@ export function CreditLadder() {
                   Max LTV
                 </th>
                 <th className="text-right font-semibold text-micro uppercase text-muted px-5 py-3">
-                  Debt per $100 collateral
+                  Debt per $100 of collateral
                 </th>
               </tr>
             </thead>
@@ -102,8 +103,12 @@ export function CreditLadder() {
             <ul className="space-y-2 text-body-sm text-slate-300">
               <li>Repaying debt</li>
               <li>Redeeming lender credit</li>
-              <li>Supplying or withdrawing collateral</li>
-              <li>Trading exits on DreamDEX</li>
+              <li>Supplying collateral, or withdrawing the amount the loan no longer needs</li>
+              {IS_MEZO ? (
+                <li>Withdrawing an unfilled lend offer</li>
+              ) : (
+                <li>Trading exits on DreamDEX</li>
+              )}
             </ul>
             <p className="text-body-sm text-subtle leading-relaxed">
               A score that falls may prevent new borrowing, but it cannot liquidate an
@@ -115,19 +120,30 @@ export function CreditLadder() {
 
       <Section title="Where this is enforced" subtitle="Honest status of the on-chain layer.">
         <Prose>
-          <p>
-            The engine's policy hooks — <code className="code-inline">canIncreaseDebt</code>,{" "}
-            <code className="code-inline">canIncreaseCredit</code>,{" "}
-            <code className="code-inline">canLiquidate</code> — are live in the core contract and
-            every market binds its gate address into its content-addressed id. The Ethos score
-            registry and threshold gates (short-lived signed authorizations with nonce, expiry,
-            wallet, chain, and policy-version binding) are the active build milestone; until
-            they deploy to Somnia, the tiers shown in this app are a preview policy and every
-            DreamDEX order settles against your real wallet collateral.
-          </p>
+          {IS_MEZO ? (
+            <p>
+              Each market's gate is part of its id, so the score bar cannot be swapped without
+              creating a different market. <code className="code-inline">canIncreaseDebt</code> is
+              what the gate checks when you borrow. A score authorization is bound to your wallet,
+              this chain, and a deadline six hours out. The browser stores the last one. The first
+              one still has to be signed by the credit service. Liquidation does not consult the
+              score: anyone can liquidate a position whose debt is above its collateral value.
+            </p>
+          ) : (
+            <p>
+              The engine's policy hooks — <code className="code-inline">canIncreaseDebt</code>,{" "}
+              <code className="code-inline">canIncreaseCredit</code>,{" "}
+              <code className="code-inline">canLiquidate</code> — are live in the core contract and
+              every market binds its gate address into its content-addressed id. The Ethos score
+              registry and threshold gates (short-lived signed authorizations with nonce, expiry,
+              wallet, chain, and policy-version binding) are the active build milestone; until
+              they deploy to Somnia, the tiers shown in this app are a preview policy and every
+              DreamDEX order settles against your real wallet collateral.
+            </p>
+          )}
         </Prose>
-        <Link to="/credit" className="link text-body-sm inline-flex items-center gap-2">
-          Check your live tier on the credit page
+        <Link to={IS_MEZO ? "/" : "/credit"} className="link text-body-sm inline-flex items-center gap-2">
+          {IS_MEZO ? "See your live tier on Borrow" : "Check your live tier on the credit page"}
           <IconArrowRight className="w-3.5 h-3.5" />
         </Link>
       </Section>

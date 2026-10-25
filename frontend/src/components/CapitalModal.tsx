@@ -1,15 +1,21 @@
 import { useEffect, useMemo, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { useAccount, useReadContract } from "wagmi";
+import { useConnectModal } from "@rainbow-me/rainbowkit";
 import { Link } from "react-router-dom";
 import toast from "react-hot-toast";
 import { formatUnits } from "viem";
 import {
+  GAS_RESERVE,
   collateralNeeded,
-  borrowWithVolatilityBuffer,
+  displayCollateral,
+  displayLoan,
   fetchLenderOffer,
-  fmtCollateral,
   fmtLoan,
+  healthFactor,
+  liquidationPrice,
   marketArgs,
+  maxDebtFor,
   parseCollateralInput,
   parseLoanInput,
   useCollateralPrice,
@@ -17,129 +23,151 @@ import {
   useGateAuthorization,
   useScoreAuthorization,
 } from "../hooks/useCovenant";
-import { CREDIT, CREDIT_DEPLOYED, tierForScore, type TierKey } from "../config/credit";
-import { CHAIN } from "../config/chain";
+import { CREDIT, CREDIT_DEPLOYED, CREDIT_TOKENS, tierForScore, type TierKey } from "../config/credit";
+import { CHAIN, MEZO_FAUCET_URL } from "../config/chain";
+import { IS_MEZO } from "../config/target";
 import { COVENANT_ABI, ERC20_ABI, ETHOS_GATE_ABI } from "../config/abis";
 import { useTx } from "../hooks/useTx";
 import { describeError } from "../lib/errors";
-import { IconCheck, IconX } from "./icons";
+import { IconCheck, IconExternal, IconX } from "./icons";
+import { HealthFactor } from "./lending";
+
+const MAX_UINT = 2n ** 256n - 1n;
+const ZERO = "0x0000000000000000000000000000000000000000" as const;
+const TITLE = IS_MEZO ? `Borrow ${CREDIT_TOKENS.loan.symbol}` : "Get trading capital";
+const SUBTITLE = IS_MEZO
+  ? `Fixed-rate ${CREDIT_TOKENS.loan.symbol} against ${CREDIT_TOKENS.collateral.symbol} collateral`
+  : "Reputation sets the terms · collateral stays the safety net";
 
 /**
- * Get trading capital — the borrow flow, presented as a checklist rather than
- * a wizard.
- *
- * The lending engine stays invisible until the trader asks for capital; when
- * they do, the three on-chain steps are exactly what the protocol requires,
- * each with its own action and live state:
- *
+ * The borrow flow. The amount comes first; the collateral it needs and the
+ * resulting health follow from it, then the three on-chain steps:
  *   1. Authorize the Ethos score at the tier gate (short-lived, wallet-bound)
- *   2. Post tBTC collateral (approve + supply)
- *   3. Borrow tUSDC by filling the lender's signed offer
- *
- * Every step re-checks on-chain state after a transaction, so the checklist
- * fills itself in as the trader progresses — and a returning borrower with
- * collateral already posted sees only the steps that remain.
+ *   2. Post collateral (approve + supply)
+ *   3. Fill the lender's signed offer
+ * Each step re-reads chain state, so a returning borrower sees only what remains.
  */
-export function CapitalModal({ onClose, amountNeeded }: { onClose: () => void; amountNeeded?: number }) {
+export function CapitalModal({
+  onClose,
+  amountNeeded,
+  market,
+}: {
+  onClose: () => void;
+  amountNeeded?: number;
+  /** The market the user opened. Borrowing a different tier than this is refused. */
+  market?: TierKey;
+}) {
   const { address } = useAccount();
 
-  if (!CREDIT_DEPLOYED || !address) {
+  if (!CREDIT_DEPLOYED) {
     return (
       <Shell onClose={onClose}>
         <NotDeployedBody />
       </Shell>
     );
   }
+  if (!address) {
+    return (
+      <Shell onClose={onClose}>
+        <ConnectBody onClose={onClose} />
+      </Shell>
+    );
+  }
 
-  return <Flow address={address} onClose={onClose} amountNeeded={amountNeeded} />;
+  return <Flow address={address} onClose={onClose} amountNeeded={amountNeeded} market={market} />;
 }
 
-function Flow({ address, onClose, amountNeeded }: { address: `0x${string}`; onClose: () => void; amountNeeded?: number }) {
-  const { data: scoreAuth } = useScoreAuthorization();
+function Flow({
+  address,
+  onClose,
+  amountNeeded,
+  market,
+}: {
+  address: `0x${string}`;
+  onClose: () => void;
+  amountNeeded?: number;
+  market?: TierKey;
+}) {
+  const loanSymbol = CREDIT_TOKENS.loan.symbol;
+  const collateralSymbol = CREDIT_TOKENS.collateral.symbol;
+  const { data: scoreAuth, isLoading: scoreLoading, isError: scoreError } = useScoreAuthorization();
   const price = useCollateralPrice();
-  /* Live tBTC allowance the Covenant contract may pull. Approve must fire
-     when ALLOWANCE is short — the previous condition gated on the wallet's
-     BALANCE being short, which approved exactly when the deposit was doomed
-     and skipped the approve exactly when it was needed. */
   const allowance = useReadContract({
     abi: ERC20_ABI,
     address: CREDIT.collateralToken ?? undefined,
     chainId: CHAIN.id,
     functionName: "allowance",
-    args: address ? [address, CREDIT.covenant!] : undefined,
-    query: { enabled: CREDIT_DEPLOYED && !!address, refetchInterval: 10_000 },
+    args: [address, CREDIT.covenant!],
+    query: { enabled: CREDIT_DEPLOYED, refetchInterval: 10_000 },
   });
 
-  const tier: TierKey = tierForScore(scoreAuth?.score ?? 0);
+  const earned: TierKey = tierForScore(scoreAuth?.score ?? 0);
+  const tier: TierKey = market ?? earned;
   const gate = useGateAuthorization(tier);
   const position = useCovenantPosition(tier);
 
-  const [borrowInput, setBorrowInput] = useState(
-    amountNeeded !== undefined ? amountNeeded.toFixed(2) : "",
-  );
+  const [borrowInput, setBorrowInput] = useState(amountNeeded !== undefined ? amountNeeded.toFixed(2) : "");
   const [collateralInput, setCollateralInput] = useState("");
   const [borrowing, setBorrowing] = useState(false);
-
+  const [sessionBorrowed, setSessionBorrowed] = useState<bigint | null>(null);
   const { send, pending } = useTx();
 
   const priceRaw = price.data as bigint | undefined;
+  const debt = position.debt ?? 0n;
+  const posted = position.collateral ?? 0n;
+  const wallet = position.walletCollateral;
+  const spendable = wallet === undefined ? undefined : IS_MEZO ? (wallet > GAS_RESERVE ? wallet - GAS_RESERVE : 0n) : wallet;
 
-  const availableDebt = useMemo(() => {
-    const maxDebt = position.maxDebt ?? 0n;
-    const debt = position.debt ?? 0n;
-    return maxDebt > debt ? maxDebt - debt : 0n;
-  }, [position.maxDebt, position.debt]);
-
-  const hasBorrowCapacity = availableDebt > 0n;
-  // Default to the largest user-requested amount whose 10% reserve still fits
-  // the current capacity. This keeps the empty field usable at the limit.
-  const maxRequestedBorrow = (availableDebt * 100n) / 110n;
-  const effectiveBorrowInput =
-    borrowInput !== "" ? borrowInput : fmtLoan(maxRequestedBorrow);
-  const requestedBorrowRaw = parseLoanInput(effectiveBorrowInput);
-  // Apply the reserve before capacity and collateral checks. The buffer must
-  // never bypass the protocol's collateral-backed borrowing limit.
-  const borrowRaw = borrowWithVolatilityBuffer(requestedBorrowRaw);
+  const borrowRaw = parseLoanInput(borrowInput);
+  const totalDebt = debt + borrowRaw;
 
   const neededCollateral = useMemo(() => {
-    const totalDebt = (position.debt ?? 0n) + borrowRaw;
-    const totalNeeded = collateralNeeded(tier, totalDebt, priceRaw);
-    const posted = position.collateral ?? 0n;
-    return totalNeeded === undefined || totalNeeded <= posted ? 0n : totalNeeded - posted;
-  }, [tier, borrowRaw, priceRaw, position.debt, position.collateral]);
+    if (borrowRaw === 0n) return 0n;
+    const total = collateralNeeded(tier, totalDebt, priceRaw);
+    return total === undefined || total <= posted ? 0n : total - posted;
+  }, [tier, borrowRaw, totalDebt, priceRaw, posted]);
+
+  /** Suggested deposit: enough for a 1.5 health factor, never below the minimum, capped at what the wallet can spend. */
+  const suggestedCollateral = useMemo(() => {
+    if (neededCollateral === 0n) return 0n;
+    const target = collateralNeeded(tier, (totalDebt * TARGET_HF_BPS) / 10_000n, priceRaw);
+    let amount = target === undefined || target <= posted ? neededCollateral : target - posted;
+    amount = roundUp(amount, CREDIT_TOKENS.collateral.decimals, 6);
+    if (spendable !== undefined && amount > spendable) amount = spendable > neededCollateral ? spendable : neededCollateral;
+    return amount;
+  }, [neededCollateral, tier, totalDebt, priceRaw, posted, spendable]);
 
   const effectiveCollateralInput =
-    collateralInput !== "" ? collateralInput : formatUnits(neededCollateral ?? 0n, 8);
+    collateralInput !== "" ? collateralInput : suggestedCollateral > 0n ? formatUnits(suggestedCollateral, CREDIT_TOKENS.collateral.decimals) : "";
+  const depositRaw = parseCollateralInput(effectiveCollateralInput);
 
-  // Keep the first-open calculation useful when the wallet already has a position.
-  const borrowHint = fmtLoan(availableDebt);
+  const availableDebt = position.maxDebt !== undefined && position.maxDebt > debt ? position.maxDebt - debt : 0n;
+  /** Most the wallet could borrow if it posted all spendable collateral as well. */
+  const potentialMax = useMemo(() => {
+    const cap = maxDebtFor(tier, posted + (spendable ?? 0n), priceRaw);
+    return cap === undefined || cap <= debt ? 0n : cap - debt;
+  }, [tier, posted, spendable, priceRaw, debt]);
 
-  const scoreAuthorized = (gate.data as boolean | undefined) === true;
-  const walletTBtc = position.walletCollateral;
-
-  // "Done" is per-transaction, not per-lifetime.
-  //
-  // Before: the modal marked Post/Borrow as DONE the moment ANY collateral
-  // was on-chain or ANY debt was open, so a user opening it to add more
-  // saw three green checks and a disabled borrow button — the wrong
-  // signal: "you've completed something" instead of "here is what THIS
-  // transaction needs".
-  //
-  // After: Post is done only when the currently-desired debt is fully
-  // supported by already-posted collateral (i.e. no top-up needed for the
-  // amount typed into the Borrow field). Borrow is only ever marked done
-  // as a session-scoped flag flipped after a successful `fillOffer` in
-  // this modal — never inferred from a prior debt balance.
-  const collateralSufficient = neededCollateral === 0n;
-  const [sessionBorrowed, setSessionBorrowed] = useState(false);
+  const scoreAuthorized = gate.data === true;
+  const collateralReady = borrowRaw > 0n && neededCollateral === 0n;
+  const plannedCollateral = collateralReady ? posted : posted + depositRaw;
+  const hfAfter = borrowRaw > 0n ? healthFactor(maxDebtFor(tier, plannedCollateral, priceRaw), totalDebt) : undefined;
+  const liqAfter = borrowRaw > 0n ? liquidationPrice(tier, totalDebt, plannedCollateral) : undefined;
+  const lltvPct = (Number(CREDIT.markets[tier].lltv) / 1e16).toFixed(1);
+  const ltvAfter =
+    borrowRaw > 0n && priceRaw !== undefined && plannedCollateral > 0n
+      ? Number(totalDebt) / Number((plannedCollateral * priceRaw) / 10n ** 36n)
+      : undefined;
+  const depositShort = spendable !== undefined && depositRaw > spendable;
+  const exceedsCapacity = borrowRaw > potentialMax && borrowRaw > 0n;
 
   async function authorizeScore() {
     if (!scoreAuth) {
-      toast.error("Credit service unavailable — try again in a moment.");
+      toast.error("The credit service did not return a score authorization. Try again in a moment.");
       return;
     }
     const payload = scoreAuth.authorizations[tier];
-    await send("Authorize score", {
+    await send("Authorize Ethos score", {
       address: CREDIT.markets[tier].gate!,
       abi: ETHOS_GATE_ABI,
       functionName: "authorize",
@@ -151,213 +179,296 @@ function Flow({ address, onClose, amountNeeded }: { address: `0x${string}`; onCl
           BigInt(payload.authorization.nonce),
           BigInt(payload.authorization.chainId),
         ],
-        [
-          payload.signature.v,
-          payload.signature.r as `0x${string}`,
-          payload.signature.s as `0x${string}`,
-        ],
+        [payload.signature.v, payload.signature.r as `0x${string}`, payload.signature.s as `0x${string}`],
       ],
     });
   }
 
   async function depositCollateral() {
-    const raw = parseCollateralInput(effectiveCollateralInput);
-    if (raw <= 0n) return;
-
-    // Approve only when the Covenant contract's pull allowance is short —
-    // otherwise the deposit reverts with an ERC-20 allowance error after the
-    // user already signed the supply. Infinite approval once (demo friction).
-    if (((allowance.data as bigint | undefined) ?? 0n) < raw) {
-      await send("Approve tBTC", {
+    if (depositRaw <= 0n) return;
+    if (((allowance.data as bigint | undefined) ?? 0n) < depositRaw) {
+      const approved = await send(`Approve ${collateralSymbol}`, {
         address: CREDIT.collateralToken!,
         abi: ERC20_ABI,
         functionName: "approve",
-        args: [CREDIT.covenant!, BigInt("0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff")],
+        args: [CREDIT.covenant!, MAX_UINT],
       });
+      if (!approved) return;
     }
-    await send("Deposit collateral", {
+    const hash = await send(`Deposit ${displayCollateral(depositRaw)} ${collateralSymbol}`, {
       address: CREDIT.covenant!,
       abi: COVENANT_ABI,
       functionName: "supplyCollateral",
-      args: [marketArgs(tier), 0n, raw, address],
+      args: [marketArgs(tier), 0n, depositRaw, address],
     });
+    if (hash) setCollateralInput("");
   }
 
   async function borrow() {
     if (borrowRaw <= 0n) return;
     setBorrowing(true);
-    const t = toast.loading("Preparing lender offer…");
+    const t = toast.loading("Requesting a lender offer…");
     try {
       const signed = await fetchLenderOffer(tier, borrowRaw);
-      toast.loading("Borrow — confirm in wallet…", { id: t });
-      await send("Borrow tUSDC", {
+      toast.dismiss(t);
+      const hash = await send(`Borrow ${displayLoan(borrowRaw)} ${loanSymbol}`, {
         address: CREDIT.covenant!,
         abi: COVENANT_ABI,
         functionName: "fillOffer",
-        args: [offerToArgs(signed.offer), signed.notaryData as `0x${string}`, borrowRaw, address, address, "0x0000000000000000000000000000000000000000", "0x"],
+        args: [offerToArgs(signed.offer), signed.notaryData as `0x${string}`, borrowRaw, address, address, ZERO, "0x"],
       });
-      // Session-scoped: this is what makes step 3 read as done. Not a
-      // persisted flag — reopening the modal starts a fresh session.
-      setSessionBorrowed(true);
-      toast.dismiss(t);
+      if (hash) {
+        setSessionBorrowed(borrowRaw);
+        setBorrowInput("");
+      }
     } catch (error) {
-      toast.error(`Borrow failed: ${describeError(error).slice(0, 180)}`, {
-        id: t,
-        duration: 10_000,
-      });
+      toast.error(`Borrow failed: ${describeError(error).slice(0, 180)}`, { id: t, duration: 10_000 });
     } finally {
       setBorrowing(false);
     }
   }
 
-  const lltvPct = ((Number(CREDIT.markets[tier].lltv) / 1e18) * 100).toFixed(1);
-  const reserve = borrowRaw > requestedBorrowRaw ? borrowRaw - requestedBorrowRaw : 0n;
-  const totalDebt = (position.debt ?? 0n) + borrowRaw;
+  const blocked = market !== undefined && scoreAuth !== undefined && market !== earned;
+  const authDeadline = scoreAuth?.authorizations[tier]?.deadline;
+
+  if (blocked) {
+    const need = CREDIT.markets[market].threshold;
+    return (
+      <Shell onClose={onClose}>
+        <div className="space-y-3">
+          <h2 className="text-h3 text-slate-50">This market is not open to your score</h2>
+          <p className="text-body-sm text-muted leading-relaxed">
+            {cap(market)} lends at {lltvPct}% LTV and requires an Ethos score of {need.toLocaleString()}+.
+            Your score is {scoreAuth.score.toLocaleString()}, which opens the {cap(earned)} market.
+          </p>
+          <div className="flex flex-wrap gap-2">
+            <Link to={`/markets/${earned}`} className="btn-primary btn-sm" onClick={onClose}>
+              Go to {cap(earned)}
+            </Link>
+            <button type="button" className="btn-secondary btn-sm" onClick={onClose}>Close</button>
+          </div>
+        </div>
+      </Shell>
+    );
+  }
+
+  if (sessionBorrowed !== null) {
+    return (
+      <Shell onClose={onClose}>
+        <div className="text-center py-4 space-y-3">
+          <div className="mx-auto w-12 h-12 rounded-full bg-ok/15 text-ok grid place-items-center">
+            <IconCheck className="w-6 h-6" />
+          </div>
+          <h2 className="text-h3 text-slate-50">Borrowed {displayLoan(sessionBorrowed)} {loanSymbol}</h2>
+          <p className="text-body-sm text-muted">
+            The {loanSymbol} is in your wallet. Total debt in the {cap(tier)} market is {displayLoan(debt)} {loanSymbol},
+            due {new Date(CREDIT.maturity * 1000).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric", timeZone: "UTC" })}.
+          </p>
+          <div className="flex justify-center gap-2 pt-2">
+            <Link to="/positions" className="btn-primary btn-sm" onClick={onClose}>View position</Link>
+            <button type="button" className="btn-secondary btn-sm" onClick={() => setSessionBorrowed(null)}>Borrow more</button>
+          </div>
+        </div>
+      </Shell>
+    );
+  }
 
   return (
-    <Shell onClose={onClose}>
-      <div className="space-y-3">
-        <div className="rounded-lg border border-line bg-ink-900/60 p-4 grid grid-cols-3 gap-4">
-          <Mini label="Ethos score" value={scoreAuth ? scoreAuth.score.toLocaleString() : "…"} />
-          <Mini label="Tier" value={scoreAuth?.tier ?? "…"} />
-          <Mini label="Max LTV" value={`${lltvPct}%`} />
-        </div>
-
-        <div className="rounded-lg border border-brand-500/25 bg-brand-500/[0.04] p-4 space-y-3">
-          <div>
-            <div className="section-label text-brand-300">Your trading terms</div>
-            <p className="mt-1 text-body-sm text-slate-300">
-              Ethos is used to select your credit tier. The tier sets the maximum loan-to-value;
-              the oracle price and your posted tBTC set the actual limit.
-            </p>
-          </div>
-          <dl className="grid grid-cols-2 gap-x-5 gap-y-3 text-body-sm">
-            <Term label="Ethos score" value={scoreAuth ? scoreAuth.score.toLocaleString() : "Loading…"} />
-            <Term label="Tier" value={tier[0].toUpperCase() + tier.slice(1)} />
-            <Term label="Maximum LTV" value={`${lltvPct}%`} />
-            <Term label="Available before reserve" value={`${fmtLoan(availableDebt)} tUSDC`} />
-            <Term label="Total debt after borrow" value={`${fmtLoan(totalDebt)} tUSDC`} />
-            <Term label="Volatility reserve" value={`${fmtLoan(reserve)} tUSDC`} />
-            <Term label="Maturity" value={new Date(CREDIT.maturity * 1000).toISOString().slice(0, 10)} />
-          </dl>
-          <p className="text-micro text-subtle leading-relaxed">
-            This is a collateralized credit limit, not a guaranteed fill. A live lender offer,
-            valid score authorization{scoreAuthorized ? " (currently active)" : " (required)"}, oracle
-            health, and market liquidity are checked again when you submit.
-          </p>
-        </div>
-
-        <Step
-          index={1}
-          title="Authorize your score"
-          done={scoreAuthorized}
-          status={scoreAuthorized ? "live" : undefined}
-          hint={
-            scoreAuthorized
-              ? `Authorization live at the ${tier} gate — expires with the 30-minute window.`
-              : "A short-lived, wallet-bound authorization the tier gate verifies on-chain."
-          }
-        >
-          {!scoreAuthorized && (
-            <button className="btn-secondary btn-sm" onClick={authorizeScore} disabled={pending}>
-              Authorize {scoreAuth?.score.toLocaleString() ?? "score"}
-            </button>
-          )}
-        </Step>
-
-        <Step
-          index={2}
-          title="Post tBTC collateral"
-          done={collateralSufficient}
-          status={collateralSufficient ? "sufficient" : undefined}
-           hint={
-             collateralSufficient
-               ? `Current collateral supports the requested borrow. ${fmtCollateral(position.collateral)} tBTC posted · covers ${fmtLoan(position.maxDebt)} tUSDC of total debt.`
-               : `Need +${fmtCollateral(neededCollateral)} tBTC for the borrow amount below. Currently posted: ${fmtCollateral(position.collateral)} tBTC.`
-          }
-        >
-          <label className="field">
-            <span className="field-label">Collateral amount (tBTC)</span>
-            <input
-              className="field-input font-mono tabular-nums"
-              value={effectiveCollateralInput}
-              onChange={(e) => setCollateralInput(e.target.value)}
-              inputMode="decimal"
-              spellCheck={false}
-              autoComplete="off"
-            />
-          </label>
-          <div className="flex items-center justify-between text-micro text-subtle">
-            <span>
-               Wallet: {walletTBtc !== undefined ? fmtCollateral(walletTBtc) : "—"} tBTC · drip more from the{" "}
-               <Link to="/faucet" className="link">faucet</Link>
+    <Shell onClose={onClose} badge={`${cap(tier)} · ${lltvPct}% LLTV`}>
+      <div className="space-y-4">
+        {/* Amount */}
+        <div>
+          <div className="flex items-center justify-between text-micro">
+            <span className="field-label mb-0">You borrow</span>
+            <span className="text-subtle">
+              Max{" "}
+              <button type="button" className="link font-semibold font-mono" onClick={() => setBorrowInput(fmtLoan(roundDown(potentialMax, CREDIT_TOKENS.loan.decimals, 2)))} disabled={potentialMax === 0n}>
+                {displayLoan(potentialMax)}
+              </button>{" "}
+              {loanSymbol}
             </span>
-             {neededCollateral !== undefined && (
-               <span className="font-mono">
-                 {neededCollateral > 0n ? `needs +${fmtCollateral(neededCollateral)}` : "collateral sufficient"} tBTC
-               </span>
-            )}
           </div>
-          <button
-            className="btn-secondary btn-sm"
-            onClick={depositCollateral}
-              disabled={pending || parseCollateralInput(effectiveCollateralInput) <= 0n}
-          >
-            Approve & deposit
-          </button>
-        </Step>
-
-        <Step
-          index={3}
-          title="Borrow tUSDC"
-          done={sessionBorrowed}
-          status={sessionBorrowed ? "done" : undefined}
-           hint={
-             sessionBorrowed
-                ? `Borrowed ${fmtLoan(borrowRaw)} tUSDC (${fmtLoan(requestedBorrowRaw)} requested + 10% reserve). Existing debt: ${fmtLoan(position.debt)} tUSDC · health ${position.healthy ? "ok" : "at risk"}.`
-               : (position.debt ?? 0n) > 0n
-                 ? `You already owe ${fmtLoan(position.debt)} tUSDC · ${fmtLoan(availableDebt)} tUSDC remaining at this collateral level. Borrow more below.`
-                 : "Fixed rate, fixed maturity — repayment is 1:1, exits never gated."
-          }
-        >
-          <label className="field">
-             <span className="field-label">Capital needed (tUSDC)</span>
+          <div className="mt-1.5 rounded-lg border border-line-strong bg-surface-raised px-4 py-3 flex items-center gap-3 focus-within:shadow-focus-ring">
             <input
-              className="field-input font-mono tabular-nums"
-               value={effectiveBorrowInput}
+              className="flex-1 min-w-0 bg-transparent outline-none focus-visible:outline-none font-mono text-[1.5rem] leading-tight tabular-nums text-slate-50 placeholder:text-subtle"
+              placeholder="0.00"
+              value={borrowInput}
               onChange={(e) => setBorrowInput(e.target.value)}
               inputMode="decimal"
               spellCheck={false}
               autoComplete="off"
+              aria-label={`Amount of ${loanSymbol} to borrow`}
+              autoFocus
             />
-           </label>
-           <p className="text-micro text-subtle">
-             Covenant will borrow <span className="font-mono text-slate-200">{fmtLoan(borrowRaw)} tUSDC</span>:
-             your requested amount plus a 10% volatility reserve.
-           </p>
-           {borrowRaw > availableDebt && requestedBorrowRaw > 0n && (
-             <p className="text-micro text-warn">
-               The requested amount plus the 10% reserve exceeds your collateral-backed capacity.
-               Reduce the amount or post more tBTC.
-             </p>
-           )}
-           <button
-            className="btn-primary btn-sm w-full"
-            onClick={borrow}
-             disabled={borrowing || pending || borrowRaw <= 0n || !scoreAuthorized || !hasBorrowCapacity || borrowRaw > availableDebt}
-           >
-             {borrowing ? "Borrowing…" : `Borrow ${fmtLoan(borrowRaw)} tUSDC`}
-           </button>
-           <p className="text-micro text-subtle">
-              Available to borrow: <span className="font-mono">{borrowHint} tUSDC</span> after the reserve. Add collateral to increase it.
-           </p>
-          {!scoreAuthorized && (
-            <p className="text-micro text-subtle">Authorize your score first — the gate checks it inside the borrow.</p>
+            <span className="text-body font-semibold text-slate-200">{loanSymbol}</span>
+          </div>
+          {exceedsCapacity && (
+            <p className="mt-1.5 text-micro text-warn">
+              More than your {collateralSymbol} can support at {lltvPct}% LTV.
+              {IS_MEZO && (
+                <>
+                  {" "}Get more from the{" "}
+                  <a href={MEZO_FAUCET_URL} target="_blank" rel="noreferrer" className="link">faucet</a>.
+                </>
+              )}
+            </p>
           )}
-        </Step>
+        </div>
+
+        {/* Projection */}
+        <dl className="rounded-lg border border-line divide-y divide-line text-body-sm">
+          <Line
+            label="Collateral to add"
+            value={
+              borrowRaw === 0n
+                ? "—"
+                : neededCollateral === 0n
+                  ? "None, already posted"
+                  : `${displayCollateral(depositRaw)} ${collateralSymbol}`
+            }
+          />
+          <Line label="Loan-to-value" value={ltvAfter === undefined ? "—" : `${(ltvAfter * 100).toFixed(1)}% / ${lltvPct}% max`} />
+          <Line
+            label="Health factor"
+            value={
+              <span>
+                {debt > 0n ? <HealthFactor value={healthFactor(position.maxDebt, position.debt)} /> : <span className="text-subtle">∞</span>}
+                <span className="text-subtle mx-1.5">→</span>
+                {borrowRaw > 0n ? <HealthFactor value={hfAfter} /> : <span className="text-subtle">—</span>}
+              </span>
+            }
+          />
+          <Line label="Liquidation price" value={liqAfter === undefined ? "—" : `$${liqAfter.toLocaleString("en-US", { maximumFractionDigits: 0 })} per ${collateralSymbol}`} />
+          <Line label="Rate" value={`0.00% fixed · repay ${borrowRaw > 0n ? displayLoan(totalDebt) : "1:1"} ${borrowRaw > 0n ? loanSymbol : ""}`} />
+        </dl>
+
+        {hfAfter !== undefined && hfAfter < 1.2 && (
+          <p className="rounded-lg border border-warn/30 bg-warn/[0.06] px-3.5 py-2.5 text-micro text-warn leading-relaxed">
+            {hfAfter < 1.01
+              ? `At a health factor of ${hfAfter.toFixed(2)} this loan becomes liquidatable on almost any ${collateralSymbol} price drop.`
+              : `At a health factor of ${hfAfter.toFixed(2)}, a ${((1 - 1 / hfAfter) * 100).toFixed(1)}% drop in ${collateralSymbol} makes this loan liquidatable.`}{" "}
+            Deposit more collateral or borrow less.
+          </p>
+        )}
+
+        {/* Steps */}
+        <ol className="space-y-2">
+          <Step
+            index={1}
+            title="Authorize Ethos score"
+            done={scoreAuthorized}
+            hint={
+              scoreAuthorized
+                ? `Active at the ${cap(tier)} gate${authDeadline ? ` until ${new Date(authDeadline * 1000).toISOString().slice(11, 16)} UTC` : ""}`
+                : scoreLoading
+                  ? "Fetching your signed score…"
+                  : scoreError
+                    ? "Credit service unreachable. Try again shortly."
+                    : `Score ${scoreAuth?.score.toLocaleString() ?? "—"} · valid for six hours`
+            }
+            action={
+              !scoreAuthorized && (
+                <button className="btn-secondary btn-sm" onClick={authorizeScore} disabled={pending || !scoreAuth}>
+                  Authorize
+                </button>
+              )
+            }
+          />
+          <Step
+            index={2}
+            title={`Deposit ${collateralSymbol}`}
+            done={collateralReady}
+            hint={
+              collateralReady
+                ? `${displayCollateral(posted)} ${collateralSymbol} posted covers this loan`
+                : borrowRaw === 0n
+                  ? `${displayCollateral(posted)} ${collateralSymbol} posted · enter an amount above`
+                  : `Minimum ${displayCollateral(neededCollateral)} · wallet ${spendable === undefined ? "—" : displayCollateral(spendable)} ${collateralSymbol}${IS_MEZO ? " after gas" : ""}`
+            }
+          >
+            {!collateralReady && borrowRaw > 0n && (
+              <div className="mt-2.5 flex items-center gap-2">
+                <div className="flex-1 rounded-md border border-line-strong bg-surface-raised px-3 py-1.5 flex items-center gap-2 focus-within:shadow-focus-ring">
+                  <input
+                    className="flex-1 min-w-0 bg-transparent outline-none focus-visible:outline-none font-mono text-body-sm tabular-nums text-slate-50"
+                    value={effectiveCollateralInput}
+                    onChange={(e) => setCollateralInput(e.target.value)}
+                    inputMode="decimal"
+                    spellCheck={false}
+                    autoComplete="off"
+                    aria-label={`${collateralSymbol} to deposit`}
+                  />
+                  <span className="text-micro text-subtle">{collateralSymbol}</span>
+                </div>
+                <button
+                  className="btn-secondary btn-sm"
+                  onClick={depositCollateral}
+                  disabled={pending || depositRaw <= 0n || depositShort}
+                >
+                  Deposit
+                </button>
+              </div>
+            )}
+            {depositShort && !collateralReady && (
+              <p className="mt-1.5 text-micro text-warn">
+                Not enough {collateralSymbol} in this wallet.
+                {IS_MEZO && (
+                  <>
+                    {" "}
+                    <a href={MEZO_FAUCET_URL} target="_blank" rel="noreferrer" className="link inline-flex items-center gap-1">
+                      Mezo faucet <IconExternal className="w-3 h-3" />
+                    </a>
+                  </>
+                )}
+              </p>
+            )}
+          </Step>
+          <Step
+            index={3}
+            title={`Borrow ${loanSymbol}`}
+            done={false}
+            hint={
+              !scoreAuthorized
+                ? "Authorize your score first. The gate checks it inside the borrow."
+                : !collateralReady
+                  ? "Deposit collateral first."
+                  : `Fills a signed lender offer. ${displayLoan(availableDebt)} ${loanSymbol} available at current collateral.`
+            }
+          />
+        </ol>
+
+        <button
+          type="button"
+          className="btn-primary w-full"
+          onClick={borrow}
+          disabled={borrowing || pending || borrowRaw <= 0n || !scoreAuthorized || !collateralReady || borrowRaw > availableDebt}
+        >
+          {borrowing ? "Borrowing…" : borrowRaw > 0n ? `Borrow ${displayLoan(borrowRaw)} ${loanSymbol}` : "Enter an amount"}
+        </button>
+        <p className="text-micro text-subtle text-center leading-relaxed">
+          Repaying and withdrawing collateral never require an Ethos score.
+        </p>
       </div>
     </Shell>
   );
+}
+
+const cap = (s: string) => s[0].toUpperCase() + s.slice(1);
+
+/** Health factor the suggested deposit aims for, in basis points. */
+const TARGET_HF_BPS = 15_000n;
+
+function roundDown(raw: bigint, decimals: number, places: number): bigint {
+  if (decimals <= places) return raw;
+  const step = 10n ** BigInt(decimals - places);
+  return (raw / step) * step;
+}
+
+/** Round a raw amount up to `places` decimals so suggested inputs stay readable. */
+function roundUp(raw: bigint, decimals: number, places: number): bigint {
+  if (decimals <= places) return raw;
+  const step = 10n ** BigInt(decimals - places);
+  return ((raw + step - 1n) / step) * step;
 }
 
 /* ── offer conversion ───────────────────────────────────────────────────── */
@@ -392,27 +503,18 @@ function offerToArgs(offer: Record<string, any>): readonly unknown[] {
 
 /* ── primitives ─────────────────────────────────────────────────────────── */
 
-function Shell({ children, onClose }: { children: React.ReactNode; onClose: () => void }) {
-  /* Dialog mechanics the overlay-click close never provided:
-      - Escape closes (the wallet dropdown already did this; the modal didn't).
-      - Body scroll locks while open so the page behind can't be scrolled
-        blind under the overlay.
-      - Focus moves into the dialog on open and returns to the trigger on
-        close — keyboard users otherwise restart from the top of the page.
-      - Tab wraps inside the panel. `aria-modal="true"` tells assistive tech
-        that nothing outside the dialog exists, so focus escaping into the
-        page behind it (still tabbable, merely dimmed) breaks the contract
-        the role makes.
-      `onClose` is captured in a ref so a new function identity per parent
-      render doesn't re-run the effect (which would restore focus and
-        re-lock mid-session). */
+function Shell({ children, onClose, badge }: { children: React.ReactNode; onClose: () => void; badge?: string }) {
+  /* Escape closes, body scroll locks, focus moves in on open and returns to the
+     trigger on close, and Tab wraps inside the panel (aria-modal contract).
+     `onClose` sits in a ref so a new identity per parent render doesn't re-run
+     the effect mid-session. */
   const panelRef = useRef<HTMLDivElement>(null);
   const onCloseRef = useRef(onClose);
   onCloseRef.current = onClose;
 
   useEffect(() => {
     const previouslyFocused = document.activeElement as HTMLElement | null;
-    panelRef.current?.focus();
+    if (!panelRef.current?.contains(document.activeElement)) panelRef.current?.focus();
     const { overflow } = document.body.style;
     document.body.style.overflow = "hidden";
     const focusables = () =>
@@ -428,7 +530,7 @@ function Shell({ children, onClose }: { children: React.ReactNode; onClose: () =
         onCloseRef.current();
         return;
       }
-      if (e.key !== "Tab" || e.shiftKey === undefined) return;
+      if (e.key !== "Tab") return;
       const items = focusables();
       if (items.length === 0) return;
       const first = items[0];
@@ -450,34 +552,36 @@ function Shell({ children, onClose }: { children: React.ReactNode; onClose: () =
     };
   }, []);
 
-  return (
+  // Portaled: a transformed ancestor (the route transition wrapper) would otherwise
+  // become the containing block for `position: fixed` and center the dialog on the page.
+  return createPortal(
     <div className="modal-overlay" onClick={onClose}>
       <div
         ref={panelRef}
         role="dialog"
         aria-modal="true"
-        aria-label="Get trading capital"
+        aria-label={TITLE}
         tabIndex={-1}
-        className="modal-panel max-w-lg outline-none"
+        className="modal-panel max-w-md outline-none"
         onClick={(e) => e.stopPropagation()}
       >
         <div className="card-header">
           <div>
-            <div className="card-title">Get trading capital</div>
-            <div className="text-body-sm text-subtle mt-0.5">
-              Reputation sets the terms · collateral stays the safety net
+            <div className="flex items-center gap-2">
+              <div className="card-title">{TITLE}</div>
+              {badge && <span className="badge-neutral">{badge}</span>}
             </div>
+            <div className="text-body-sm text-subtle mt-0.5">{SUBTITLE}</div>
           </div>
           <button className="btn-ghost btn-sm" onClick={onClose} aria-label="Close">
             <IconX className="w-4 h-4" />
           </button>
         </div>
-        {/* `overscroll-contain`: a scroll-chaining body would let a flick at
-            the end of the checklist scroll the locked page behind the
-            overlay on touch devices. */}
-        <div className="card-body max-h-[70vh] overflow-y-auto overscroll-contain">{children}</div>
+        {/* overscroll-contain keeps a flick at the end of the panel from scrolling the locked page. */}
+        <div className="card-body max-h-[75vh] overflow-y-auto overscroll-contain">{children}</div>
       </div>
-    </div>
+    </div>,
+    document.body,
   );
 }
 
@@ -485,52 +589,67 @@ function Step({
   index,
   title,
   done,
-  status,
   hint,
+  action,
   children,
 }: {
   index: number;
   title: string;
   done: boolean;
-  status?: string;
   hint: string;
+  action?: React.ReactNode;
   children?: React.ReactNode;
 }) {
   return (
-     <div className={`rounded-lg border p-4 space-y-3 ${done ? "border-ok/30 bg-ok/[0.04]" : "border-line bg-ink-900"}`}>
-      <div className="flex items-start justify-between gap-3">
-        <div className="flex items-center gap-2.5">
+    <li className={`rounded-lg border px-3.5 py-3 ${done ? "border-ok/30 bg-ok/[0.04]" : "border-line"}`}>
+      <div className="flex items-center justify-between gap-3">
+        <div className="flex items-center gap-2.5 min-w-0">
           <span
-            className={`w-6 h-6 rounded-full flex items-center justify-center text-micro font-bold ${
-              done ? "bg-ok/15 text-ok border border-ok/40" : "bg-ink-900 text-subtle border border-line-strong"
+            className={`w-5 h-5 rounded-full grid place-items-center text-[10px] font-bold flex-shrink-0 ${
+              done ? "bg-ok/15 text-ok" : "bg-ink-900 text-subtle border border-line-strong"
             }`}
           >
-            {done ? <IconCheck className="w-3.5 h-3.5" /> : index}
+            {done ? <IconCheck className="w-3 h-3" /> : index}
           </span>
-          <span className="text-body-sm font-semibold text-slate-100">{title}</span>
+          <div className="min-w-0">
+            <div className="text-body-sm font-semibold text-slate-100">{title}</div>
+            <div className="text-micro text-subtle">{hint}</div>
+          </div>
         </div>
-         {done && <span className="badge-ok">{status ?? "done"}</span>}
+        {action}
       </div>
-      <p className="text-micro text-subtle leading-relaxed">{hint}</p>
-       {children && <div className="space-y-2.5 pt-1">{children}</div>}
+      {children}
+    </li>
+  );
+}
+
+function Line({ label, value }: { label: string; value: React.ReactNode }) {
+  return (
+    <div className="flex items-center justify-between gap-4 px-3.5 py-2.5">
+      <dt className="text-subtle">{label}</dt>
+      <dd className="font-mono tabular-nums text-slate-100 text-right">{value}</dd>
     </div>
   );
 }
 
-function Mini({ label, value }: { label: string; value: string }) {
+function ConnectBody({ onClose }: { onClose: () => void }) {
+  const { openConnectModal } = useConnectModal();
   return (
-    <div>
-      <div className="stat-label">{label}</div>
-      <div className="mt-1 text-body-lg font-semibold text-slate-50 tabular-nums">{value}</div>
-    </div>
-  );
-}
-
-function Term({ label, value }: { label: string; value: string }) {
-  return (
-    <div>
-      <dt className="text-micro text-subtle">{label}</dt>
-      <dd className="mt-0.5 font-mono text-body-sm text-slate-50 tabular-nums">{value}</dd>
+    <div className="empty-state py-8">
+      <div className="empty-state-title">Connect a wallet to borrow</div>
+      <p className="empty-state-body max-w-sm">
+        Covenant reads your Ethos score and {CREDIT_TOKENS.collateral.symbol} balance to size the loan. Nothing is signed until you confirm.
+      </p>
+      <button
+        type="button"
+        className="btn-primary btn-sm mt-4"
+        onClick={() => {
+          onClose();
+          openConnectModal?.();
+        }}
+      >
+        Connect wallet
+      </button>
     </div>
   );
 }
@@ -540,9 +659,11 @@ function NotDeployedBody() {
     <div className="empty-state py-10">
       <div className="empty-state-title">Credit markets pending deployment</div>
       <p className="empty-state-body max-w-sm">
-        The tier-gated credit engine deploys to Somnia testnet next — until then, trade with
-        wallet collateral from the faucet. DreamDEX discovery and order execution are live.
+        {IS_MEZO
+          ? "The Mezo credit markets are not in this build's configuration. Borrowing stays closed until the Covenant, notary, and market addresses are set."
+          : "The tier-gated credit engine deploys to Somnia testnet next — until then, trade with wallet collateral from the faucet. DreamDEX discovery and order execution are live."}
       </p>
     </div>
   );
 }
+

@@ -9,6 +9,17 @@ export const fmtUnits = (raw: bigint | undefined, decimals: number, digits = 4):
   return d ? `${addCommas(i)}.${d.slice(0, digits).padEnd(digits, "0").replace(/0+$/, "") || "0"}` : addCommas(i);
 };
 
+/** Display a raw token amount with thousands separators and at most `maxFrac` decimals. */
+export function fmtAmount(raw: bigint | undefined, decimals: number, maxFrac = 2): string {
+  if (raw === undefined) return "—";
+  const n = Number(formatUnits(raw, decimals));
+  if (n !== 0 && Math.abs(n) < 10 ** -maxFrac) return `<${(10 ** -maxFrac).toFixed(maxFrac)}`;
+  return n.toLocaleString("en-US", { minimumFractionDigits: 0, maximumFractionDigits: maxFrac });
+}
+
+/** Percent with fixed precision: 0.385 → "38.50%". */
+export const fmtPct = (ratio: number, digits = 2) => `${(ratio * 100).toFixed(digits)}%`;
+
 export const fmtUsd = (n: number) =>
   n.toLocaleString(undefined, { style: "currency", currency: "USD", maximumFractionDigits: 2 });
 

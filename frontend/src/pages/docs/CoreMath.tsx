@@ -1,4 +1,5 @@
-import { DocPage, Section, Prose } from "./_primitives";
+import { DocPage, Note, Section, Prose } from "./_primitives";
+import { IS_MEZO } from "../../config/target";
 
 /*
   Core math.
@@ -108,6 +109,28 @@ SCALE = ORACLE_PRICE_SCALE * 10^loanDecimals
             <code className="code-inline">testFuzz_priceIdentity</code>.
           </p>
         </Prose>
+
+        {IS_MEZO && (
+          <Note title="This deployment's price feed">
+            <p>
+              Mezo&apos;s BTC/USD feed is a Skip precompile. Calling{" "}
+              <code className="code-inline">decimals()</code> on it from a contract reenters, even
+              though an off-chain call returns 18. <code className="code-inline">SkipBtcUsdOracle</code>{" "}
+              hardcodes the feed scale at 18 and reads only{" "}
+              <code className="code-inline">latestRoundData</code> inside{" "}
+              <code className="code-inline">price()</code>.
+            </p>
+            <p>
+              Collateral, loan token, and feed are all 18 decimals, so{" "}
+              <code className="code-inline">SCALE</code> is <code className="code-inline">1e18</code>{" "}
+              and <code className="code-inline">price()</code> is the feed answer times that scale.
+              Staleness is six hours. A zero, negative, or stale answer reverts the price, so a
+              borrow that needs the oracle fails closed instead of liquidating against a price
+              nobody can vouch for. The oracle address is inside each market id. Replacing the
+              adapter is a new market, not an upgrade of this one.
+            </p>
+          </Note>
+        )}
       </Section>
 
       {/* CONT_MATH */}

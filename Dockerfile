@@ -19,6 +19,7 @@ RUN mkdir -p /app/telegram-bot && mv package.json package-lock.json /app/telegra
 
 COPY offchain/somnia-service.mjs ./offchain/somnia-service.mjs
 COPY deployments/somnia-testnet.json ./offchain/somnia-testnet.json
+COPY deployments/mezo-testnet.json ./offchain/mezo-testnet.json
 COPY telegram-bot ./telegram-bot
 
 ENV MANIFEST=./somnia-testnet.json

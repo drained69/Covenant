@@ -17,7 +17,9 @@ import {
 } from "../../components/icons";
 import { CHAIN, SOMNIA_FAUCET_URL } from "../../config/chain";
 import { ETHOS_SETTINGS_URL } from "../../config/dreamdex";
+import { IS_MEZO } from "../../config/target";
 import { DocPage, Note, Section } from "./_primitives";
+import { MezoHowTo } from "./MezoHowTo";
 
 /**
  * Task-oriented operating guide for the live application.
@@ -28,6 +30,7 @@ import { DocPage, Note, Section } from "./_primitives";
  * live dependency is unavailable.
  */
 export function HowTo() {
+  if (IS_MEZO) return <MezoHowTo />;
   return (
     <DocPage
       eyebrow="User guide"

@@ -1,7 +1,8 @@
 # Covenant Telegram Bot
 
-Telegram control plane for Covenant and DreamDEX Event Contracts, built from
-DreamDEX Bot Kit's Event Contract safety patterns.
+Telegram control plane for the Somnia DreamDEX app, built from DreamDEX Bot
+Kit's Event Contract safety patterns. It is not part of the Mezo credit
+deployment (`VITE_TARGET=mezo`); that build has no Event Contracts to trade.
 
 ## Safety model
 

@@ -1,8 +1,13 @@
 import { Navigate, Route, Routes, Link, useLocation } from "react-router-dom";
 import { Header } from "./components/Header";
 import { Markets } from "./pages/Markets";
+import { CreditMarkets } from "./pages/CreditMarkets";
+import { CreditMarketDetail } from "./pages/CreditMarketDetail";
 import { DreamDexMarketDetail } from "./pages/DreamDexMarketDetail";
 import { Positions } from "./pages/Positions";
+import { MezoPositions } from "./pages/MezoPositions";
+import { MezoDashboard } from "./pages/MezoDashboard";
+import { MezoHowTo } from "./pages/docs/MezoHowTo";
 import { Credit } from "./pages/Credit";
 import { Faucet } from "./pages/Faucet";
 import { DocsLayout } from "./pages/docs/DocsLayout";
@@ -17,6 +22,7 @@ import { Overview as HomeOverview } from "./pages/Overview";
 import { TelegramConnect } from "./pages/TelegramConnect";
 import { TelegramLink } from "./pages/TelegramLink";
 import { CHAIN, EXPLORER } from "./config/chain";
+import { IS_MEZO } from "./config/target";
 import { IconExternal } from "./components/icons";
 
 export function App() {
@@ -62,10 +68,10 @@ export function App() {
       <main id="main-content" tabIndex={-1} className="flex-1 outline-none">
         <div key={routeKey} className="animate-page-enter">
           <Routes>
-            <Route path="/" element={<HomeOverview />} />
-            <Route path="/markets" element={<Markets />} />
-            <Route path="/markets/:marketId" element={<DreamDexMarketDetail />} />
-            <Route path="/positions" element={<Positions />} />
+            <Route path="/" element={IS_MEZO ? <MezoDashboard /> : <HomeOverview />} />
+            <Route path="/markets" element={IS_MEZO ? <CreditMarkets /> : <Markets />} />
+            <Route path="/markets/:marketId" element={IS_MEZO ? <CreditMarketDetail /> : <DreamDexMarketDetail />} />
+            <Route path="/positions" element={IS_MEZO ? <MezoPositions /> : <Positions />} />
             <Route path="/credit" element={<Credit />} />
             <Route path="/faucet" element={<Faucet />} />
 
@@ -87,7 +93,7 @@ export function App() {
             */}
             <Route path="/docs" element={<DocsLayout />}>
               <Route index element={<Overview />} />
-              <Route path="how-to" element={<HowTo />} />
+              <Route path="how-to" element={IS_MEZO ? <MezoHowTo /> : <HowTo />} />
               <Route path="how-it-works" element={<HowItWorks />} />
               <Route path="architecture" element={<Architecture />} />
               <Route path="credit-ladder" element={<CreditLadder />} />
@@ -130,7 +136,9 @@ export function App() {
           <div className="max-w-sm">
             <div className="text-body-sm font-semibold text-slate-200">Covenant</div>
             <p className="mt-1.5 text-body-sm text-subtle leading-relaxed">
-              Reputation-aware trading capital for DreamDEX Event Contracts.
+              {IS_MEZO
+                ? "Ethos-tiered MUSD credit, collateralized by BTC on Mezo."
+                : "Reputation-aware trading capital for DreamDEX Event Contracts."}
             </p>
           </div>
 
@@ -140,9 +148,19 @@ export function App() {
                 under Learn. The faucet moves out of Protocol — it is testnet
                 scaffolding, not part of the credit product. */}
             <FooterGroup title="Protocol">
-              <FooterLink to="/markets">Markets</FooterLink>
-              <FooterLink to="/positions">Positions</FooterLink>
-              <FooterLink to="/credit">Credit</FooterLink>
+              {IS_MEZO ? (
+                <>
+                  <FooterLink to="/markets">Markets</FooterLink>
+                  <FooterLink to="/positions">Positions</FooterLink>
+                  <FooterLink to="/">Borrow</FooterLink>
+                </>
+              ) : (
+                <>
+                  <FooterLink to="/markets">Markets</FooterLink>
+                  <FooterLink to="/positions">Positions</FooterLink>
+                  <FooterLink to="/credit">Credit</FooterLink>
+                </>
+              )}
             </FooterGroup>
             <FooterGroup title="Learn">
               <FooterLink to="/docs/how-to">How to use Covenant</FooterLink>
@@ -151,10 +169,14 @@ export function App() {
               <FooterLink to="/faucet">Testnet faucet</FooterLink>
             </FooterGroup>
             <FooterGroup title="On-chain">
-              <FooterExternal href={EXPLORER}>Somnia explorer</FooterExternal>
-              <FooterExternal href="https://docs.dreamdex.io/developers/event-contracts">
-                DreamDEX Event Contracts
-              </FooterExternal>
+              <FooterExternal href={EXPLORER}>{IS_MEZO ? "Mezo explorer" : "Somnia explorer"}</FooterExternal>
+              {IS_MEZO ? (
+                <FooterExternal href="https://testnet.mezo.org">Mezo testnet</FooterExternal>
+              ) : (
+                <FooterExternal href="https://docs.dreamdex.io/developers/event-contracts">
+                  DreamDEX Event Contracts
+                </FooterExternal>
+              )}
               <FooterExternal href="https://www.ethos.network/">Ethos</FooterExternal>
             </FooterGroup>
           </nav>

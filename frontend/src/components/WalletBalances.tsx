@@ -3,6 +3,7 @@ import { Link } from "react-router-dom";
 import { useAccount, useBalance } from "wagmi";
 import { formatUnits } from "viem";
 import { CHAIN, EXPLORER, NATIVE_TOKEN, QUOTE_TOKEN } from "../config/chain";
+import { IS_MEZO } from "../config/target";
 import { useDreamDexQuoteBalance } from "../hooks/useDreamDex";
 import { useEthosCredit } from "../hooks/useEthosScore";
 import { shortAddr } from "../lib/format";
@@ -153,7 +154,9 @@ export function WalletBalancesMenu() {
           </div>
 
            <div className="px-4 py-3 border-t border-line bg-ink-900 text-micro text-subtle">
-            Held in your wallet — DreamDEX orders escrow collateral at fill time.
+            {IS_MEZO
+              ? "MUSD in this wallet is not collateral. Post BTC on a market before it backs a loan."
+              : "Held in your wallet — DreamDEX orders escrow collateral at fill time."}
           </div>
         </div>
       )}

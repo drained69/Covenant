@@ -2,13 +2,15 @@ import { Link } from "react-router-dom";
 import { useAccount } from "wagmi";
 import { useEthosCredit } from "../hooks/useEthosScore";
 import { useDreamDexQuoteBalance } from "../hooks/useDreamDex";
-import { useGateAuthorization } from "../hooks/useCovenant";
+import { fmtCollateral, fmtLoan, useCovenantPosition, useCreditPortfolio, useGateAuthorization } from "../hooks/useCovenant";
 import { useTradingCapacity } from "../hooks/useTradingCapacity";
-import { CREDIT_DEPLOYED, tierForScore } from "../config/credit";
+import { CREDIT_DEPLOYED, CREDIT_TOKENS, tierForScore } from "../config/credit";
 import { ETHOS_SETTINGS_URL, ETHOS_TIERS, ethosProfileUrl } from "../config/dreamdex";
 import { EthosMark, IconExternal, IconArrowRight } from "../components/icons";
+import { CapitalModal } from "../components/CapitalModal";
 import { shortAddr } from "../lib/format";
 import { useState } from "react";
+import { IS_MEZO } from "../config/target";
 
 /**
  * Credit — the capacity page.
@@ -33,16 +35,23 @@ export function Credit() {
   const tierKey = tierForScore(data?.score ?? 0);
   const gateAuth = useGateAuthorization(tierKey);
   const authorized = CREDIT_DEPLOYED && (gateAuth.data as boolean | undefined) === true;
+  const [borrowOpen, setBorrowOpen] = useState(false);
+  const loanSymbol = CREDIT_TOKENS.loan.symbol;
+  const collateralSymbol = CREDIT_TOKENS.collateral.symbol;
+  const position = useCovenantPosition(tierKey);
+  const portfolio = useCreditPortfolio();
 
   return (
     <section className="shell py-10 lg:py-12 space-y-8">
       <header className="max-w-2xl">
-        <div className="section-label text-brand-500">Your credit</div>
-        <h1 className="mt-2 text-h2 text-slate-50">Available capacity, explained.</h1>
+        <div className="section-label text-brand-500">{IS_MEZO ? "Borrow" : "Your credit"}</div>
+        <h1 className="mt-2 text-h2 text-slate-50">
+          {IS_MEZO ? "Borrow MUSD against BTC, priced by Ethos." : "Available capacity, explained."}
+        </h1>
         <p className="mt-3 text-body text-muted leading-relaxed">
-          Every figure below is live: the reputation signal comes from Ethos, collateral
-          comes from your wallet, and the limit they produce is transparent — never a
-          black box.
+          {IS_MEZO
+            ? "Your score picks the market. The market fixes the maximum loan-to-value. Collateral is Mezo BTC."
+            : "Every figure below is live: the reputation signal comes from Ethos, collateral comes from your wallet, and the limit they produce is transparent — never a black box."}
         </p>
       </header>
 
@@ -50,43 +59,88 @@ export function Credit() {
       <div className="grid lg:grid-cols-[minmax(0,1fr)_360px] gap-6 items-stretch">
         <div className="card">
           <div className="p-6">
-            <div className="stat-label">Available to trade</div>
+            <div className="stat-label">{IS_MEZO ? "Available to borrow" : "Available to trade"}</div>
             <div className="mt-1.5 font-mono text-[2.75rem] leading-none font-semibold text-slate-50 tabular-nums tracking-[-0.03em]">
               {!isConnected ? (
                 <span className="text-subtle">—</span>
               ) : cap.isLoading ? (
                 <span className="skeleton h-11 w-40 inline-block align-middle" />
+              ) : IS_MEZO ? (
+                <span className="text-ok">{cap.availableCredit.toLocaleString(undefined, { maximumFractionDigits: 2 })} {loanSymbol}</span>
               ) : (
                 <span className="text-ok">${cap.available.toLocaleString(undefined, { maximumFractionDigits: 2 })}</span>
               )}
             </div>
             <div className="mt-2 text-body-sm text-subtle">
               {!isConnected
-                ? "Connect a Somnia wallet to compute your capacity."
-                : `spendable across every live Event Contract · ${cap.positionCount} open position${cap.positionCount === 1 ? "" : "s"}`}
+                ? "Connect a wallet to compute your capacity."
+                : IS_MEZO
+                  ? `MUSD you can borrow against BTC at the ${tier.name} tier`
+                  : `spendable across every live Event Contract · ${cap.positionCount} open position${cap.positionCount === 1 ? "" : "s"}`}
             </div>
 
             {/* The capacity bar: working vs ready against the total. */}
             <div className="mt-6">
-              <CapacityBar cap={cap} />
+              {IS_MEZO ? (
+                <MezoCapacityBar
+                  debt={position.debt}
+                  available={position.maxDebt !== undefined && position.debt !== undefined && position.maxDebt > position.debt ? position.maxDebt - position.debt : 0n}
+                  symbol={loanSymbol}
+                />
+              ) : (
+                <CapacityBar cap={cap} />
+              )}
             </div>
 
             {/* Derivation, ledger-style. */}
             <dl className="mt-6 divide-y divide-line border-t border-line">
               <DerivationRow
-                label="Wallet collateral"
-                value={quote.formatted !== undefined ? `$${quote.formatted.toLocaleString(undefined, { maximumFractionDigits: 2 })}` : "—"}
-                note="TestUSDC held — the foundation"
+                label={IS_MEZO ? "Wallet collateral" : "Wallet collateral"}
+                value={
+                  IS_MEZO
+                    ? position.walletCollateral !== undefined
+                      ? `${fmtCollateral(position.walletCollateral)} ${collateralSymbol}`
+                      : "—"
+                    : quote.formatted !== undefined
+                      ? `$${quote.formatted.toLocaleString(undefined, { maximumFractionDigits: 2 })}`
+                      : "—"
+                }
+                note={IS_MEZO ? `${collateralSymbol} in this wallet, not yet posted` : "TestUSDC held — the foundation"}
               />
               <DerivationRow
-                label="Undrawn credit"
-                value={CREDIT_DEPLOYED ? `$${cap.availableCredit.toLocaleString(undefined, { maximumFractionDigits: 2 })}` : "—"}
-                note={CREDIT_DEPLOYED ? `${tier.name} tier · up to ${tier.ltv}% LTV against posted collateral` : "tier credit markets pending deployment"}
+                label={IS_MEZO ? "Posted collateral" : "Undrawn credit"}
+                value={
+                  IS_MEZO
+                    ? `${fmtCollateral(position.collateral)} ${collateralSymbol}`
+                    : CREDIT_DEPLOYED
+                      ? `$${cap.availableCredit.toLocaleString(undefined, { maximumFractionDigits: 2 })}`
+                      : "—"
+                }
+                note={
+                  IS_MEZO
+                    ? `backing the ${tier.name} market · up to ${tier.ltv}% LTV`
+                    : CREDIT_DEPLOYED
+                      ? `${tier.name} tier · up to ${tier.ltv}% LTV against posted collateral`
+                      : "tier credit markets pending deployment"
+                }
               />
+              {IS_MEZO && (
+                <DerivationRow
+                  label="Available to borrow"
+                  value={CREDIT_DEPLOYED ? `${cap.availableCredit.toLocaleString(undefined, { maximumFractionDigits: 2 })} ${loanSymbol}` : "—"}
+                  note={`${tier.name} market · the amount the borrow form will request`}
+                />
+              )}
               <DerivationRow
-                label="Working in positions"
-                value={cap.inPositions > 0 ? `−$${cap.inPositions.toLocaleString(undefined, { maximumFractionDigits: 2 })}` : "$0"}
-                note="mark-to-market value of open positions"
+                label={IS_MEZO ? "Open debt" : "Working in positions"}
+                value={
+                  IS_MEZO
+                    ? `${portfolio.debt === undefined ? "…" : fmtLoan(portfolio.debt)} ${loanSymbol}`
+                    : cap.inPositions > 0
+                      ? `−$${cap.inPositions.toLocaleString(undefined, { maximumFractionDigits: 2 })}`
+                      : "$0"
+                }
+                note={IS_MEZO ? "sum of every market · repay from Positions" : "mark-to-market value of open positions"}
               />
             </dl>
 
@@ -100,13 +154,27 @@ export function Credit() {
                       : "Score not yet authorized at the gate"}
                   </span>
                 </div>
-                <Link
-                  to="/markets"
-                  className="link text-body-sm inline-flex items-center gap-1.5 whitespace-nowrap"
-                >
-                  Borrow from any market
-                  <IconArrowRight className="w-3.5 h-3.5" />
-                </Link>
+                {IS_MEZO ? (
+                  <span className="inline-flex flex-wrap gap-2">
+                    <button
+                      type="button"
+                      className="btn-primary btn-sm"
+                      onClick={() => setBorrowOpen(true)}
+                    >
+                      Borrow {loanSymbol}
+                    </button>
+                    <Link to="/markets" className="btn-secondary btn-sm">Markets</Link>
+                    <Link to="/positions" className="btn-secondary btn-sm">Positions</Link>
+                  </span>
+                ) : (
+                  <Link
+                    to="/markets"
+                    className="link text-body-sm inline-flex items-center gap-1.5 whitespace-nowrap"
+                  >
+                    Borrow from any market
+                    <IconArrowRight className="w-3.5 h-3.5" />
+                  </Link>
+                )}
               </div>
             )}
 
@@ -209,11 +277,42 @@ export function Credit() {
       {isConnected && !isLoading && tierKey === "open" && (
         <EthosBindingCard address={address!} />
       )}
+
+      {IS_MEZO && (
+        <p className="text-body-sm text-subtle max-w-2xl">
+          Borrow {loanSymbol} against {collateralSymbol}. Open is 38.5% LTV, Established (1,600+) is 62.5%,
+          and Reputable (2,000+) is 77%. A score already accepted on-chain keeps working if the signing
+          service is down. The first authorization still needs it. Other wallets can lend from a market page.
+        </p>
+      )}
+
+      {borrowOpen && <CapitalModal onClose={() => setBorrowOpen(false)} />}
     </section>
   );
 }
 
 /* ── capacity parts ──────────────────────────────────────────────────── */
+
+function MezoCapacityBar({ debt, available, symbol }: { debt: bigint | undefined; available: bigint; symbol: string }) {
+  const owed = debt ?? 0n;
+  const total = owed + available;
+  const usedPct = total > 0n ? Math.min(100, Number((owed * 100n) / total)) : 0;
+  return (
+    <div>
+      <div className="h-2.5 rounded-full bg-ink-900 overflow-hidden flex">
+        <div className="h-full bg-brand-500/70 transition-[width] duration-500" style={{ width: `${usedPct}%` }} />
+      </div>
+      <div className="mt-2 flex justify-between gap-3 text-micro text-muted">
+        <span>
+          <span className="font-mono text-brand-300 tabular-nums">{fmtLoan(owed)} {symbol}</span> borrowed
+        </span>
+        <span>
+          <span className="font-mono text-ok tabular-nums">{fmtLoan(available)} {symbol}</span> available
+        </span>
+      </div>
+    </div>
+  );
+}
 
 function CapacityBar({ cap }: { cap: ReturnType<typeof useTradingCapacity> }) {
   const usedPct = cap.total > 0 ? Math.min(100, (cap.inPositions / cap.total) * 100) : 0;
@@ -272,7 +371,7 @@ function DerivationRow({ label, value, note }: { label: string; value: string; n
  * the score applies to. Covenant's job is to send the user to that binding
  * with the exact address to paste, and to make the mechanism legible.
  */
-function EthosBindingCard({ address }: { address: string }) {
+export function EthosBindingCard({ address }: { address: string }) {
   const [copied, setCopied] = useState(false);
 
   async function copyAddress() {

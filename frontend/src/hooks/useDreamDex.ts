@@ -19,7 +19,16 @@ import {
   useLivePrice as useSdkLivePrice,
 } from "@somnia-chain/markets-sdk/react";
 import { bindSigner, dreamdexClient, dreamdexExchange } from "../config/dreamdex";
+import { IS_MEZO } from "../config/target";
 import { CHAIN, QUOTE_TOKEN } from "../config/chain";
+
+/** DreamDEX calls are Somnia-only. The Mezo build never reaches these paths. */
+function venue() {
+  if (!dreamdexExchange || !dreamdexClient) {
+    throw new Error("DreamDEX is not part of this deployment");
+  }
+  return { exchange: dreamdexExchange, client: dreamdexClient };
+}
 
 /**
  * Every read below rides ONE connection.
@@ -41,8 +50,8 @@ export function useDreamDexMarkets() {
       // browser session hits the indexer. Under `true` the app blocked on
       // a 4-8s GraphQL round-trip on every mount, even when the same list
       // was already in memory a second earlier.
-      await dreamdexExchange.loadMarkets(false);
-      return Object.values(dreamdexExchange.markets).filter(
+      await venue().exchange.loadMarkets(false);
+      return Object.values(venue().exchange.markets).filter(
         (market) => market.type === "binary" && market.active,
       );
     },
@@ -65,7 +74,7 @@ export function useDreamDexMarket(marketId?: string) {
     queryKey: ["dreamdex", "market", marketId],
     queryFn: async () => {
       if (!marketId) throw new Error("Market id is required");
-      return await dreamdexClient.getBinaryMarket(marketId);
+      return await venue().client.getBinaryMarket(marketId);
     },
     enabled: !!marketId,
     staleTime: 10_000,
@@ -195,7 +204,7 @@ export function useMarketOnchain(marketId?: string) {
     queryKey: ["dreamdex", "onchain", marketId],
     queryFn: async () => {
       if (!marketId) throw new Error("Market id is required");
-      return await dreamdexClient.getMarketOnchain(marketId as `0x${string}`);
+      return await venue().client.getMarketOnchain(marketId as `0x${string}`);
     },
     enabled: !!marketId,
     refetchInterval: 5_000,
@@ -235,7 +244,7 @@ export function useSettledClaimables() {
     queryKey: ["dreamdex", "claimables", address],
     queryFn: async () => {
       if (!address) throw new Error("Connect a wallet first");
-      const settled = await dreamdexClient.listBinaryMarkets({
+      const settled = await venue().client.listBinaryMarkets({
         status: "Finalized",
         limit: 120,
       });
@@ -246,17 +255,17 @@ export function useSettledClaimables() {
 
       const claimables: ClaimablePosition[] = [];
       for (const row of recent) {
-        const onchain = await dreamdexClient.getMarketOnchain(
+        const onchain = await venue().client.getMarketOnchain(
           row.marketId as `0x${string}`,
         );
         if (!onchain.isResolved && !onchain.isVoided) continue;
 
-        const up = await dreamdexClient.getOutcomeBalance({
+        const up = await venue().client.getOutcomeBalance({
           outcomeToken: onchain.outcomeToken,
           account: address,
           id: onchain.yesId,
         });
-        const down = await dreamdexClient.getOutcomeBalance({
+        const down = await venue().client.getOutcomeBalance({
           outcomeToken: onchain.outcomeToken,
           account: address,
           id: onchain.noId,
@@ -267,7 +276,7 @@ export function useSettledClaimables() {
            (SDK estPayoutFor: amount × (10_000 − feeBps) / 10_000). Voids pay
            both sides a half with no fee. Pricing the winner at full par
            overstated the claim; net it the way the contract will. */
-        const fees = await dreamdexClient.getMarketFees(row.marketId);
+        const fees = await venue().client.getMarketFees(row.marketId);
         const feeBps = BigInt(fees?.settlementFeeBps ?? "0");
 
         const dec = onchain.decimals;
@@ -348,9 +357,9 @@ export function useDreamDexPortfolio() {
     queryKey: ["dreamdex", "portfolio", address],
     queryFn: async () => {
       if (!address) throw new Error("Connect a wallet first");
-      return await dreamdexClient.getPortfolio(address);
+      return await venue().client.getPortfolio(address);
     },
-    enabled: !!address,
+    enabled: !!address && !IS_MEZO,
     refetchInterval: 10_000,
   });
 }
@@ -362,9 +371,9 @@ export function useDreamDexPositions() {
     queryKey: ["dreamdex", "positions-pnl", address],
     queryFn: async () => {
       if (!address) throw new Error("Connect a wallet first");
-      return await dreamdexClient.getOpenPositionsWithPnL(address);
+      return await venue().client.getOpenPositionsWithPnL(address);
     },
-    enabled: !!address,
+    enabled: !!address && !IS_MEZO,
     refetchInterval: 10_000,
   });
 }
@@ -415,7 +424,7 @@ export function useDreamDexTrader() {
       if (!walletClient) throw new Error("Wallet not ready — try again");
       if (!onSomnia) throw new Error(`Switch your wallet to ${CHAIN.name} (chain ${CHAIN.id})`);
 
-      const { status } = await dreamdexClient.getMarketOnchain(
+      const { status } = await venue().client.getMarketOnchain(
         marketId as `0x${string}`,
       );
       if (status !== 1) {
@@ -428,14 +437,14 @@ export function useDreamDexTrader() {
         );
       }
 
-      return await dreamdexExchange.createOrder(symbol, "limit", side, amount, price, {
+      return await venue().exchange.createOrder(symbol, "limit", side, amount, price, {
         timeInForce: "IOC",
       });
     },
     cancelOrder: async (pool: string, orderId: string) => {
       if (!walletClient) throw new Error("Wallet not ready — try again");
       if (!onSomnia) throw new Error(`Switch your wallet to ${CHAIN.name} (chain ${CHAIN.id})`);
-      return await dreamdexClient
+      return await venue().client
         .createTrader({ walletClient })
         .cancelOrder({ pool: pool as `0x${string}`, orderId });
     },
@@ -443,7 +452,7 @@ export function useDreamDexTrader() {
     closePosition: async (marketId: string, outcome: "up" | "down", amount: number) => {
       if (!walletClient) throw new Error("Wallet not ready — try again");
       if (!onSomnia) throw new Error(`Switch your wallet to ${CHAIN.name} (chain ${CHAIN.id})`);
-      const { status } = await dreamdexClient.getMarketOnchain(marketId as `0x${string}`);
+      const { status } = await venue().client.getMarketOnchain(marketId as `0x${string}`);
       if (status !== 1) {
         throw new Error(
           status === 0
@@ -454,7 +463,7 @@ export function useDreamDexTrader() {
         );
       }
       const symbol = `${marketId}#${outcome === "up" ? "YES" : "NO"}`;
-      return await dreamdexExchange.createOrder(symbol, "market", "sell", amount, undefined, {
+      return await venue().exchange.createOrder(symbol, "market", "sell", amount, undefined, {
         timeInForce: "IOC",
         slippage: 0.05,
       });
@@ -469,7 +478,7 @@ export function useDreamDexTrader() {
     redeemOutcome: async (marketId: string, outcomeIdx: 0 | 1, amount: bigint) => {
       if (!walletClient) throw new Error("Connect a Somnia wallet first");
       if (!onSomnia) throw new Error(`Switch your wallet to ${CHAIN.name} (chain ${CHAIN.id})`);
-      return await dreamdexClient.createTrader({ walletClient }).redeem({
+      return await venue().client.createTrader({ walletClient }).redeem({
         marketId: marketId as `0x${string}`,
         amount,
         outcomeIdx,
@@ -479,7 +488,7 @@ export function useDreamDexTrader() {
     faucet: async () => {
       if (!walletClient) throw new Error("Connect a Somnia wallet first");
       if (!onSomnia) throw new Error(`Switch your wallet to ${CHAIN.name} (chain ${CHAIN.id})`);
-      return await dreamdexClient.createTrader({ walletClient }).faucet();
+      return await venue().client.createTrader({ walletClient }).faucet();
     },
   };
 }

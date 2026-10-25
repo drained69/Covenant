@@ -5,6 +5,7 @@ import {
 } from "@somnia-chain/markets-sdk";
 import type { WalletClient } from "viem";
 import { somniaShannon } from "@somnia-chain/markets-sdk/chains";
+import { IS_MEZO } from "./target";
 
 export const DREAMDEX_CHAIN = somniaShannon;
 export const DREAMDEX_INDEXER_URL =
@@ -81,16 +82,18 @@ export const ETHOS_SETTINGS_URL = "https://app.ethos.network/profile/settings";
  * take their signer from `setSigner` rather than from construction — see
  * `bindSigner` below.
  */
-export const dreamdexExchange = new SomniaMarkets({
-  chain: DREAMDEX_CHAIN,
-  indexerUrl: DREAMDEX_INDEXER_URL,
-  wsRpcUrl: DREAMDEX_WS_RPC_URL,
-  addresses: DREAMDEX_ADDRESSES,
-  priceFeed: DREAMDEX_PRICE_FEED,
-});
+export const dreamdexExchange = IS_MEZO
+  ? null
+  : new SomniaMarkets({
+      chain: DREAMDEX_CHAIN,
+      indexerUrl: DREAMDEX_INDEXER_URL,
+      wsRpcUrl: DREAMDEX_WS_RPC_URL,
+      addresses: DREAMDEX_ADDRESSES,
+      priceFeed: DREAMDEX_PRICE_FEED,
+    });
 
-/** The engine-tier client the `/react` hooks read from. */
-export const dreamdexClient = dreamdexExchange.client;
+/** The engine-tier client the `/react` hooks read from. Null on the Mezo build. */
+export const dreamdexClient = dreamdexExchange ? dreamdexExchange.client : null;
 
 /**
  * Point the shared exchange at the connected wallet.
@@ -102,6 +105,6 @@ export const dreamdexClient = dreamdexExchange.client;
  * a disconnect doesn't throw during render.
  */
 export function bindSigner(walletClient?: WalletClient): void {
-  if (!walletClient) return;
+  if (!walletClient || !dreamdexExchange) return;
   dreamdexExchange.setSigner({ walletClient });
 }

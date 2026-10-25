@@ -16,6 +16,12 @@ import "./index.css";
 
 const queryClient = new QueryClient();
 
+/** DreamDEX's provider is Somnia-only. The Mezo build has no venue client. */
+function VenueProvider({ children }: { children: React.ReactNode }) {
+  if (!dreamdexClient) return children;
+  return <SomniaMarketsProvider client={dreamdexClient}>{children}</SomniaMarketsProvider>;
+}
+
 /**
  * App entrypoint. Providers layer bottom-up:
  *   Wagmi (chain + transport) → ReactQuery (cache) → RainbowKit (wallet UI) →
@@ -49,7 +55,7 @@ ReactDOM.createRoot(document.getElementById("root")!).render(
             fontStack: "system",
           })}
         >
-          <SomniaMarketsProvider client={dreamdexClient}>
+          <VenueProvider>
             <BrowserRouter>
               <App />
               <Toaster
@@ -71,7 +77,7 @@ ReactDOM.createRoot(document.getElementById("root")!).render(
                 }}
               />
             </BrowserRouter>
-          </SomniaMarketsProvider>
+          </VenueProvider>
         </RainbowKitProvider>
       </QueryClientProvider>
     </WagmiProvider>

@@ -29,7 +29,7 @@
  *   PORT               — default 3001
  */
 
-import { readFileSync } from "node:fs";
+import { readFileSync, writeFileSync } from "node:fs";
 import { createServer } from "node:http";
 import { ethers } from "ethers";
 
@@ -89,7 +89,9 @@ const SCORE_AUTH_TYPES = {
   ],
 };
 
-const AUTH_TTL_SECONDS = 30 * 60;
+// Six hours. An authorization already accepted on-chain keeps borrowing open
+// for this long if the service is later unreachable. Exits are never gated.
+const AUTH_TTL_SECONDS = 6 * 60 * 60;
 
 /** Signs one authorization against one gate's EIP-712 domain. */
 async function signScoreAuthorization(gateAddress, wallet, score) {
@@ -319,6 +321,188 @@ async function signLenderOffer(marketName, units) {
 }
 
 /* ─────────────────────────────────────────────────────────────────────────────
+ * Offer book — lenders other than LENDER_KEY
+ * ────────────────────────────────────────────────────────────────────────── */
+
+const BOOK_PATH = new URL("./offer-book.json", import.meta.url);
+const BOOK_LIMIT = 64;
+
+function loadBook() {
+  try {
+    const parsed = JSON.parse(readFileSync(BOOK_PATH, "utf8"));
+    return Array.isArray(parsed) ? parsed : [];
+  } catch {
+    return [];
+  }
+}
+
+function saveBook(rows) {
+  writeFileSync(BOOK_PATH, JSON.stringify(rows));
+}
+
+function freshBook() {
+  const now = Math.floor(Date.now() / 1000);
+  return loadBook().filter((row) => Number(row.expiry) > now);
+}
+
+function sameAddr(a, b) {
+  return String(a).toLowerCase() === String(b).toLowerCase();
+}
+
+function normalizeOffer(raw) {
+  if (!raw || typeof raw !== "object" || !raw.market) throw new Error("Offer is missing its market.");
+  return {
+    market: {
+      loanToken: raw.market.loanToken,
+      collateralParams: (raw.market.collateralParams ?? []).map((cp) => ({
+        token: cp.token,
+        lltv: BigInt(cp.lltv),
+        maxLif: BigInt(cp.maxLif),
+        oracle: cp.oracle,
+      })),
+      maturity: BigInt(raw.market.maturity),
+      rcfThreshold: BigInt(raw.market.rcfThreshold ?? 0),
+      entryGate: raw.market.entryGate,
+      seizureGate: raw.market.seizureGate,
+    },
+    buy: raw.buy === true,
+    maker: raw.maker,
+    start: BigInt(raw.start ?? 0),
+    expiry: BigInt(raw.expiry),
+    tick: BigInt(raw.tick),
+    group: raw.group,
+    callback: raw.callback,
+    callbackData: raw.callbackData ?? "0x",
+    receiverIfMakerIsSeller: raw.receiverIfMakerIsSeller,
+    notary: raw.notary,
+    reduceOnly: raw.reduceOnly === true,
+    maxUnits: BigInt(raw.maxUnits),
+    maxAssets: BigInt(raw.maxAssets ?? 0),
+  };
+}
+
+function offerMatchesMarket(offer, marketName) {
+  const expected = marketStruct(marketName);
+  if (!expected) return false;
+  const got = offer.market;
+  const cp = got.collateralParams[0];
+  const want = expected.collateralParams[0];
+  if (!cp || !want) return false;
+  return (
+    sameAddr(got.loanToken, expected.loanToken) &&
+    sameAddr(cp.token, want.token) &&
+    cp.lltv === BigInt(want.lltv) &&
+    cp.maxLif === BigInt(want.maxLif) &&
+    sameAddr(cp.oracle, want.oracle) &&
+    got.maturity === BigInt(expected.maturity) &&
+    got.rcfThreshold === BigInt(expected.rcfThreshold) &&
+    sameAddr(got.entryGate, expected.entryGate) &&
+    sameAddr(got.seizureGate, expected.seizureGate)
+  );
+}
+
+function chainRpc() {
+  if (process.env.COVENANT_RPC_URL) return process.env.COVENANT_RPC_URL;
+  if (Number(MANIFEST.chainId) === 31611) return "https://rpc.test.mezo.org";
+  if (Number(MANIFEST.chainId) === 50312) return "https://api.infra.testnet.somnia.network";
+  return null;
+}
+
+/** Best posted par offer that can cover `units`. The house book is the fallback. */
+function bestPostedOffer(marketName, units) {
+  const now = Math.floor(Date.now() / 1000);
+  const rows = freshBook().filter(
+    (row) =>
+      row.market === marketName &&
+      BigInt(row.offer.tick) === MAX_TICK &&
+      BigInt(row.offer.maxUnits) >= units &&
+      Number(row.expiry) > now + 30,
+  );
+  rows.sort((a, b) => Number(b.expiry) - Number(a.expiry));
+  return rows[0] ?? null;
+}
+
+async function acceptPostedOffer(marketName, rawOffer, signature) {
+  const offer = normalizeOffer(rawOffer);
+  const now = Math.floor(Date.now() / 1000);
+  if (!MANIFEST.markets[marketName]) throw new Error("Unknown market.");
+  if (!offer.buy || offer.reduceOnly) throw new Error("Only a buy offer can lend.");
+  if (!sameAddr(offer.notary, MANIFEST.notary)) throw new Error("Offer notary does not match this deployment.");
+  if (!offerMatchesMarket(offer, marketName)) throw new Error("Offer market does not match the deployment.");
+  if (offer.tick !== MAX_TICK) throw new Error("Only a par offer is accepted while the house lends at par.");
+  if (offer.maxUnits <= 0n) throw new Error("Offer size must be positive.");
+  if (offer.expiry <= BigInt(now + 30) || offer.expiry > BigInt(now + 24 * 3600)) {
+    throw new Error("Offer expiry must be between 30 seconds and 24 hours.");
+  }
+  if (offer.callback !== ethers.ZeroAddress) throw new Error("Callback offers are not accepted.");
+
+  const domain = { chainId: MANIFEST.chainId, verifyingContract: MANIFEST.notary };
+  const recovered = ethers.verifyTypedData(domain, OFFER_TYPES, { offerTree: offer }, signature);
+  if (!sameAddr(recovered, offer.maker)) throw new Error("Signature does not match the offer maker.");
+
+  const rpc = chainRpc();
+  if (!rpc) throw new Error("No RPC configured to check lender allowance.");
+  const provider = new ethers.JsonRpcProvider(rpc);
+  const loan = new ethers.Contract(
+    MANIFEST.loanToken,
+    ["function allowance(address,address) view returns (uint256)", "function balanceOf(address) view returns (uint256)"],
+    provider,
+  );
+  const core = new ethers.Contract(
+    MANIFEST.covenant,
+    ["function isAuthorized(address,address) view returns (bool)"],
+    provider,
+  );
+  const [allowance, balance, authorized] = await Promise.all([
+    loan.allowance(offer.maker, MANIFEST.covenant),
+    loan.balanceOf(offer.maker),
+    core.isAuthorized(offer.maker, MANIFEST.notary),
+  ]);
+  if (!authorized) throw new Error("Lender has not authorized the notary on Covenant.");
+  if (allowance < offer.maxUnits) throw new Error("Lender allowance is below the offer size.");
+  if (balance < offer.maxUnits) throw new Error("Lender balance is below the offer size.");
+
+  const sig = ethers.Signature.from(signature);
+  const root = hashOffer(offer);
+  const notaryData = abiCoder.encode(
+    ["tuple(uint8 v, bytes32 r, bytes32 s)", "bytes32", "uint256", "bytes32[]"],
+    [{ v: sig.v, r: sig.r, s: sig.s }, root, 0, []],
+  );
+  const storedOffer = {
+    ...rawOffer,
+    maker: ethers.getAddress(offer.maker),
+    tick: offer.tick.toString(),
+    maxUnits: offer.maxUnits.toString(),
+    expiry: Number(offer.expiry),
+  };
+  const row = {
+    market: marketName,
+    maker: storedOffer.maker,
+    expiry: Number(offer.expiry),
+    offer: storedOffer,
+    notaryData,
+    marketId: MANIFEST.markets[marketName].marketId,
+  };
+  const next = freshBook().filter((existing) => !(existing.market === marketName && sameAddr(existing.maker, row.maker)));
+  next.push(row);
+  saveBook(next.slice(-BOOK_LIMIT));
+  return row;
+}
+
+/** Pull an unfilled offer. The maker signs a plaintext cancel so a third party cannot remove it. */
+function cancelPostedOffer(marketName, maker, signature) {
+  if (!MANIFEST.markets[marketName]) throw new Error("Unknown market.");
+  if (!maker || !ethers.isAddress(maker)) throw new Error("Invalid maker.");
+  const message = `Covenant cancel offer\n${MANIFEST.chainId}\n${marketName}\n${maker.toLowerCase()}`;
+  const recovered = ethers.verifyMessage(message, signature);
+  if (!sameAddr(recovered, maker)) throw new Error("Cancel signature does not match the maker.");
+  const before = freshBook();
+  const next = before.filter((row) => !(row.market === marketName && sameAddr(row.maker, maker)));
+  saveBook(next);
+  return before.length - next.length;
+}
+
+/* ─────────────────────────────────────────────────────────────────────────────
  * HTTP
  * ────────────────────────────────────────────────────────────────────────── */
 
@@ -330,7 +514,7 @@ function sendJson(res, status, body) {
   res.writeHead(status, {
     "Content-Type": "application/json",
     "Access-Control-Allow-Origin": "*",
-    "Access-Control-Allow-Methods": "GET, OPTIONS",
+    "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
     "Access-Control-Allow-Headers": "Content-Type",
     "Content-Length": Buffer.byteLength(payload),
   });
@@ -343,7 +527,7 @@ const server = createServer(async (req, res) => {
   if (req.method === "OPTIONS") {
     res.writeHead(204, {
       "Access-Control-Allow-Origin": "*",
-      "Access-Control-Allow-Methods": "GET, OPTIONS",
+      "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
       "Access-Control-Allow-Headers": "Content-Type",
     });
     return res.end();
@@ -356,6 +540,8 @@ const server = createServer(async (req, res) => {
         chainId: MANIFEST.chainId,
         scoreSigner: scoreSigner.address,
         lender: lender.address,
+        authTtlSeconds: AUTH_TTL_SECONDS,
+        postedOffers: freshBook().length,
         markets: Object.fromEntries(
           Object.entries(MANIFEST.markets).map(([k, m]) => [k, { gate: m.gate, threshold: m.threshold }]),
         ),
@@ -404,8 +590,59 @@ const server = createServer(async (req, res) => {
       if (!marketName || !MANIFEST.markets[marketName] || units <= 0n) {
         return sendJson(res, 400, { ok: false, message: "Pass ?market=<tier>&units=<raw units>." });
       }
+      const posted = bestPostedOffer(marketName, units);
+      if (posted) {
+        return sendJson(res, 200, {
+          ok: true,
+          maker: posted.maker,
+          marketId: posted.marketId,
+          offer: posted.offer,
+          notaryData: posted.notaryData,
+          expiry: posted.expiry,
+          source: "book",
+        });
+      }
       const signed = await signLenderOffer(marketName, units);
-      return sendJson(res, 200, { ok: true, ...signed });
+      return sendJson(res, 200, { ok: true, source: "house", ...signed });
+    }
+
+    if (req.method === "GET" && url.pathname === "/api/offers") {
+      const marketName = url.searchParams.get("market");
+      const rows = freshBook().filter((row) => !marketName || row.market === marketName);
+      return sendJson(res, 200, {
+        ok: true,
+        offers: rows.map((row) => ({
+          market: row.market,
+          maker: row.maker,
+          maxUnits: row.offer.maxUnits,
+          expiry: row.expiry,
+          tick: row.offer.tick,
+        })),
+      });
+    }
+
+    if (req.method === "POST" && url.pathname === "/api/offers") {
+      const raw = await readBody(req);
+      let body;
+      try {
+        body = JSON.parse(raw);
+      } catch {
+        return sendJson(res, 400, { ok: false, message: "Expected JSON." });
+      }
+      const row = await acceptPostedOffer(body.market, body.offer, body.signature);
+      return sendJson(res, 200, { ok: true, maker: row.maker, expiry: row.expiry });
+    }
+
+    if (req.method === "POST" && url.pathname === "/api/offers/cancel") {
+      const raw = await readBody(req);
+      let body;
+      try {
+        body = JSON.parse(raw);
+      } catch {
+        return sendJson(res, 400, { ok: false, message: "Expected JSON." });
+      }
+      const removed = cancelPostedOffer(body.market, body.maker, body.signature);
+      return sendJson(res, 200, { ok: true, removed });
     }
 
     return sendJson(res, 404, { ok: false, message: "Not found." });
@@ -414,6 +651,24 @@ const server = createServer(async (req, res) => {
     return sendJson(res, 500, { ok: false, message: String(error).slice(0, 300) });
   }
 });
+
+function readBody(req) {
+  return new Promise((resolve, reject) => {
+    const chunks = [];
+    let size = 0;
+    req.on("data", (chunk) => {
+      size += chunk.length;
+      if (size > 32_000) {
+        reject(new Error("body too large"));
+        req.destroy();
+        return;
+      }
+      chunks.push(chunk);
+    });
+    req.on("end", () => resolve(Buffer.concat(chunks).toString("utf8")));
+    req.on("error", reject);
+  });
+}
 
 server.listen(PORT, () => {
   console.log(`Covenant Somnia service on :${PORT}`);

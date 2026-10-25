@@ -1,31 +1,34 @@
 # Covenant
 
-**Trade the future with reputation-backed capital.**
+**Reputation-backed credit. On Somnia it funds DreamDEX. On Mezo it lends MUSD.**
 
-Covenant is a reputation-aware prediction market application for [DreamDEX Event Contracts](https://docs.dreamdex.io/developers/event-contracts) on Somnia. It helps traders discover live markets, access conservative collateralized trading capital based on [Ethos](https://www.ethos.network/) credibility, and execute Up or Down positions from one interface.
+Covenant is a fixed-rate credit engine whose borrowing limit depends on an [Ethos](https://www.ethos.network/) credibility score. The same collateral supports 2× more debt at Reputable (77% LTV) than at Open (38.5%). Two deployments are live:
 
-The product is the trading experience; reputation and credit are what make it different:
+- **Somnia Shannon (default).** A reputation-aware interface for [DreamDEX Event Contracts](https://docs.dreamdex.io/developers/event-contracts). Traders discover markets, borrow DreamDEX TestUSDC against test tBTC, and buy Up or Down from one screen. Leave `VITE_TARGET` unset.
+- **Mezo testnet (`VITE_TARGET=mezo`).** The same credit engine, with testnet MUSD as the loan token and Mezo BTC as collateral, priced from Mezo's BTC/USD feed. DreamDEX does not run on Mezo, so this build is the borrow flow only. Public demo: <https://covenant-web-production.up.railway.app>. Runbook: [`docs/Mezo.md`](./docs/Mezo.md).
 
-- **DreamDEX trading (the product):** live Event Contract discovery, implied probabilities, order-book depth, expiry countdowns, testnet order execution, and position/payout tracking — all through the official Somnia Markets SDK.
-- **Ethos-powered trading limits (the differentiator):** a wallet's Ethos credibility score maps it to a transparent credit tier whose gate is hashed into the market's identity — the same collateral supports 2× more borrowing at Reputable (77% LTV) than at Open (38.5%).
-- **Covenant lending (the infrastructure):** a fixed-rate, fixed-maturity credit engine that stays invisible until the trader asks for capital — then it is three clicks: authorize score, post collateral, borrow.
+The product on Somnia is the trading experience; reputation and credit are what make it different:
 
-The trading application and the entire tier-gated credit layer run live on Somnia testnet: DreamDEX discovery, Up/Down execution, the unified portfolio, on-chain Ethos score authorization, collateralized borrowing, and redemption — all verified end-to-end against the live chain, including a live borrow of 500 tUSDC against 1 tBTC through an Ethos-gated market.
+- **DreamDEX trading (Somnia only):** live Event Contract discovery, implied probabilities, order-book depth, expiry countdowns, testnet order execution, and position/payout tracking — all through the official Somnia Markets SDK.
+- **Ethos-powered borrowing limits:** a wallet's Ethos credibility score maps it to a transparent credit tier whose gate is hashed into the market's identity.
+- **Covenant lending:** a fixed-rate, fixed-maturity credit engine. On Somnia it stays behind "Get trading capital." On Mezo it is the product: authorize score, post BTC, borrow MUSD.
+
+The Somnia application is verified on chain 50312, including a live borrow of 500 tUSDC against 1 tBTC. The Mezo deployment is verified on chain 31611: three Ethos markets, a Skip BTC/USD oracle, and a lender inventory of MUSD approved to the Covenant core.
 
 ## Project at a Glance
 
 | Item | Detail |
 |---|---|
-| Product | Reputation-aware Event Contract trading interface and collateralized credit layer |
-| Network | Somnia Shannon testnet, chain `50312` |
-| Event venue | DreamDEX Event Contracts |
-| Trading collateral | DreamDEX TestUSDC, `0x70a86D8842FB63C4Ad2b7cdddF530eBf1BB25d8E` |
-| Credit collateral | Test Wrapped BTC (`tBTC`), 8 decimals |
-| Reputation source | Ethos v2 credibility score API |
-| Frontend | React 18, TypeScript, Vite, wagmi, viem, RainbowKit |
-| DreamDEX integration | `@somnia-chain/markets-sdk` and `@somnia-chain/markets-sdk/react` |
-| Credit contracts | Solidity and Foundry, deployed to Somnia testnet |
-| Status | Working testnet prototype, deployed on Somnia Shannon |
+| Product | Reputation-aware Event Contract trading on Somnia, and Ethos-tiered MUSD credit on Mezo |
+| Networks | Somnia Shannon testnet, chain `50312` (default). Mezo testnet, chain `31611`, when `VITE_TARGET=mezo` |
+| Event venue | DreamDEX Event Contracts on Somnia only. The Mezo build has no venue |
+| Somnia loan / collateral | DreamDEX TestUSDC (`0x70a86D8842FB63C4Ad2b7cdddF530eBf1BB25d8E`, 6 decimals) against test tBTC (8 decimals) |
+| Mezo loan / collateral | MUSD (`0x118917a40FAF1CD7a13dB0Ef56C86De7973Ac503`, 18 decimals) against Mezo BTC (`0x7b7C000000000000000000000000000000000000`, 18 decimals) |
+| Reputation source | Ethos v2 credibility score API, on both networks |
+| Frontend | React 18, TypeScript, Vite, wagmi, viem, RainbowKit. Target selected by `VITE_TARGET` |
+| DreamDEX integration | `@somnia-chain/markets-sdk` and `@somnia-chain/markets-sdk/react`, Somnia build only |
+| Credit contracts | Solidity and Foundry. Deployed on Somnia Shannon and on Mezo testnet |
+| Status | Both testnet deployments are live. Mezo demo: <https://covenant-web-production.up.railway.app> |
 
 ### What Makes the Integration Meaningful
 
@@ -58,6 +61,7 @@ the borrow transaction.
 - [Security](#security)
 - [Development](#development)
 - [Deployment](#deployment)
+- [Mezo testnet](#mezo-testnet)
 - [Repository Structure](#repository-structure)
 - [Technology](#technology)
 - [Roadmap](#roadmap)
@@ -136,6 +140,7 @@ in one portfolio · repay or redeem anytime
 | Tier-gated credit markets | Implemented | Three markets at 38.5% / 62.5% / 77% LLTV; gate address hashed into each market id |
 | Credit service | Implemented | `offchain/somnia-service.mjs` — signs score authorizations from live Ethos reads and lender offers |
 | Somnia deployment | **Deployed** | Live on Somnia testnet — verified end-to-end with a real borrow; addresses in [Deployment](#deployment) |
+| Mezo deployment | **Deployed** | Live MUSD credit against Mezo BTC on chain 31611. `VITE_TARGET=mezo`. Addresses in [Mezo testnet](#mezo-testnet) and [`docs/Mezo.md`](./docs/Mezo.md) |
 | Fixed-maturity lending engine | Implemented | Offer fills, collateral, repayment, redemption, liquidation, and fees — 524-test Foundry suite |
 | EIP-712 offer authorization | Implemented | Off-chain offers with on-chain notary verification |
 
@@ -819,7 +824,9 @@ Report vulnerabilities privately to the maintainers rather than opening a public
 | `src/compliance/` | Legacy policy adapters superseded by the reputation layer |
 | `test/reputation/` | Tier-gate unit tests and the end-to-end credit-flow rehearsal |
 | `script/DeploySomnia.s.sol` | One-command Somnia deployment of the credit layer |
-| `deployments/` | Deployment manifests (template + runbook) |
+| `script/DeployMezo.s.sol` | Mezo testnet deployment: Skip BTC/USD oracle, Covenant, notary, three Ethos markets. Loan token is MUSD; collateral is Mezo BTC |
+| `deployments/` | Deployment manifests. `somnia-testnet.json` is the default service manifest; `mezo-testnet.json` is the Mezo one |
+| `docs/Mezo.md` | Mezo chain parameters, oracle caveat, deploy command, and demo |
 | `offchain/somnia-service.mjs` | Ethos score authorizations + lender offer signing |
 | `test/` | Foundry unit, fuzz, integration, regression, and proof-of-concept tests |
 | `frontend/` | Covenant Markets — the trading application |
@@ -838,7 +845,7 @@ Report vulnerabilities privately to the maintainers rather than opening a public
 ### Application
 
 - React 18, TypeScript, Vite
-- wagmi / viem / RainbowKit — Somnia testnet (`somniaShannon`, chain 50312)
+- wagmi / viem / RainbowKit — Somnia testnet (`somniaShannon`, chain 50312) by default, or Mezo testnet (chain 31611) when `VITE_TARGET=mezo`
 - `@somnia-chain/markets-sdk` **0.28.1** — one shared client for the app's
   lifetime, providing live order books, the trade tape, price feed, portfolio
   reads, and order placement
@@ -855,8 +862,12 @@ Report vulnerabilities privately to the maintainers rather than opening a public
 
 | Integration | What Covenant uses it for | Status |
 |---|---|---|
-| Somnia Shannon (chain 50312) | Settlement layer for both the credit engine and the venue | Live |
-| DreamDEX Event Contracts | Binary markets that borrowed capital trades on | Live |
+| Somnia Shannon (chain 50312) | Settlement layer for the DreamDEX app and its credit engine | Live |
+| Mezo testnet (chain 31611) | Settlement layer for MUSD credit against Mezo BTC | Live |
+| MUSD `0x118917a40FAF1CD7a13dB0Ef56C86De7973Ac503` | Mezo loan token | Live |
+| Mezo BTC precompile `0x7b7C…0000` | Mezo collateral. `balanceOf` mirrors native BTC | Live |
+| Skip BTC/USD `0x7b7c…0015` | Mezo price feed. Read only through `SkipBtcUsdOracle` | Live |
+| DreamDEX Event Contracts | Binary markets that borrowed capital trades on (Somnia only) | Live |
 | `@somnia-chain/markets-sdk` | Live book/tape/price tail, lifecycle-gated writes | Live |
 | Ethos v2 API | Credibility score behind the credit tier | Live (see [Ethos Limitations](#ethos-limitations)) |
 | DreamDEX Bot Kit | Telegram market/book/capacity interface and guarded Event Contract execution | Integrated in [`telegram-bot/`](telegram-bot/README.md), dry-run by default |
@@ -942,7 +953,8 @@ override public defaults:
 
 | Variable | Default | Purpose |
 |---|---|---|
-| `VITE_DREAMDEX_INDEXER_URL` | `https://dev.smk.somnia.host/v1/graphql` | DreamDEX GraphQL indexer |
+| `VITE_TARGET` | unset | `mezo` builds the MUSD credit app. Anything else, including unset, builds the Somnia DreamDEX app |
+| `VITE_DREAMDEX_INDEXER_URL` | `https://dev.smk.somnia.host/v1/graphql` | DreamDEX GraphQL indexer. Ignored on the Mezo build |
 | `VITE_DREAMDEX_WS_RPC_URL` | `wss://api.infra.testnet.somnia.network/ws` | WebSocket chain tail used by the SDK |
 | `VITE_CREDIT_SERVICE_URL` | `http://localhost:3001` | Covenant score-authorization and offer service |
 | `VITE_WALLETCONNECT_PROJECT_ID` | empty | Optional WalletConnect Cloud project id for mobile QR/deep-links; browser wallets do not require it |
@@ -957,10 +969,12 @@ The current production build completes successfully. The frontend does not yet h
 
 The application keeps configuration responsibilities explicit:
 
-- `frontend/src/config/chain.ts` — chain (Somnia testnet, chain 50312), explorer, and the DreamDEX venue collateral address (resolved from the SDK's deployment manifest)
-- `frontend/src/config/dreamdex.ts` — indexer and WebSocket endpoints, Ethos API, and the tier policy (`ETHOS_TIERS`)
-- `frontend/src/config/credit.ts` — deployed Covenant addresses, immutable tier markets, maturity, token metadata, and service URL
-- `deployments/somnia-testnet.json` — machine-readable source manifest for the credit service
+- `frontend/src/config/target.ts` — `IS_MEZO`, true only when `VITE_TARGET=mezo`
+- `frontend/src/config/chain.ts` — Somnia Shannon (chain 50312) or Mezo testnet (chain 31611), explorer, and the quote token
+- `frontend/src/config/dreamdex.ts` — indexer and WebSocket endpoints, Ethos API, and the tier policy (`ETHOS_TIERS`). The Mezo build sets the DreamDEX client to null
+- `frontend/src/config/credit.ts` — deployed Covenant addresses for the selected network, immutable tier markets, maturity, token metadata, and service URL
+- `deployments/somnia-testnet.json` — default machine-readable manifest for the credit service
+- `deployments/mezo-testnet.json` — Mezo manifest. The hosted service runs with `MANIFEST=./mezo-testnet.json`
 
 ### Run the Credit Service
 
@@ -1077,6 +1091,23 @@ After deployment:
 
 The full flow is rehearsed in `test/reputation/EthosCreditFlow.t.sol`, which deploys the identical configuration locally and walks a trader through authorization, borrowing, and exit.
 
+### Deploy the Credit Layer to Mezo
+
+`script/DeployMezo.s.sol` deploys the same three Ethos markets against canonical Mezo testnet assets. It does not mint a mock collateral token and it does not deploy DreamDEX. The live deployment is already published; do not rebroadcast it. Chain parameters, the Skip oracle caveat, and the exact command are in [`docs/Mezo.md`](./docs/Mezo.md).
+
+```bash
+export PRIVATE_KEY=0x...                   # funded Mezo deployer (native BTC)
+export SCORE_SIGNER_ADDRESS=0x...          # public address only
+export MATURITY=1803859200                 # optional, default 2027-03-01
+
+forge script script/DeployMezo.s.sol \
+  --tc DeployMezo \
+  --rpc-url https://rpc.test.mezo.org \
+  --broadcast --slow --with-gas-price 1000
+```
+
+`--tc DeployMezo` is required: the file also contains `SkipBtcUsdOracle`. Pass the Mezo RPC explicitly. `RPC_URL` in `.env` is still the Somnia endpoint. After a broadcast, copy the logged addresses into `deployments/mezo-testnet.json` and the `MEZO_DEPLOYMENT` block in `frontend/src/config/credit.ts`, then start the credit service with `MANIFEST=../deployments/mezo-testnet.json`.
+
 ### Offer Tooling
 
 ```bash
@@ -1108,16 +1139,47 @@ MANIFEST=../deployments/somnia-testnet.json
 PORT=3001
 
 # Optional frontend overrides
+VITE_TARGET=                 # set to mezo for the MUSD credit build
 VITE_DREAMDEX_INDEXER_URL=https://dev.smk.somnia.host/v1/graphql
 VITE_DREAMDEX_WS_RPC_URL=wss://api.infra.testnet.somnia.network/ws
 VITE_CREDIT_SERVICE_URL=http://localhost:3001
 ```
+
+For the Mezo service, point `MANIFEST` at `../deployments/mezo-testnet.json` instead of the Somnia file. The lender wallet then approves MUSD, not TestUSDC, to the Mezo Covenant core. Vite inlines `VITE_TARGET` and `VITE_CREDIT_SERVICE_URL` at build time; a hosted image must receive them as Docker build arguments. See [`docs/Mezo.md`](./docs/Mezo.md).
 
 Never commit private keys, API credentials, or signer secrets. The frontend
 contains no service private key. Public network endpoints and deployment
 addresses are expected to be visible; signing authority is not.
 
 ## Deployment
+
+### Mezo testnet
+
+**Mezo testnet — chain 31611 · [explorer](https://explorer.test.mezo.org) · manifest: [`deployments/mezo-testnet.json`](./deployments/mezo-testnet.json) · runbook: [`docs/Mezo.md`](./docs/Mezo.md)**
+
+The public demo is <https://covenant-web-production.up.railway.app>. The credit service is <https://covenant-api-production-90cf.up.railway.app> (`GET /api/health` reports chain 31611). Borrowers need Mezo testnet BTC from <https://faucet.test.mezo.org> for gas and collateral. MUSD is the loan asset; it is not dripped by that faucet.
+
+| Contract | Address | Role |
+|---|---|---|
+| Covenant core | `0x3149af999eB6Faa478E6C2AFe2f5858183Ba17ed` | Fixed-maturity lending engine (compliance mode) |
+| EcrecoverNotary | `0xCDC06AaE7617c3b6f44CC1f2a9a7163252d8a797` | EIP-712 offer verification |
+| SkipBtcUsdOracle | `0x0C19a3f5441B519803C34f4fc703c7ce3b2b62de` | BTC/USD adapter. Feed decimals hardcoded to 18. Staleness 6 hours |
+| EthosTierGate · Open | `0x7dBe32f1e1D3DB45123f60EC5a79312863A7e279` | Any scored wallet → 38.5% LLTV |
+| EthosTierGate · Established | `0xaBDBf56354494b5328ef3d75bf85Cf8B2288BFC7` | Score ≥ 1600 → 62.5% LLTV |
+| EthosTierGate · Reputable | `0xBBD1F4F83BC8D87FF808778D09CfDD1E17D17985` | Score ≥ 2000 → 77.0% LLTV |
+| MUSD | `0x118917a40FAF1CD7a13dB0Ef56C86De7973Ac503` | Loan token, 18 decimals |
+| Mezo BTC | `0x7b7C000000000000000000000000000000000000` | Collateral, 18 decimals. Mirrors native BTC |
+| Skip BTC/USD feed | `0x7b7c000000000000000000000000000000000015` | External precompile. Do not call `decimals()` on it |
+
+| Tier | Minimum score | LLTV | Market ID |
+|---|---:|---:|---|
+| Open | 0 | 38.5% | `0x2e4fea7d8656bbc209cb649362990a937c3011cd4f2fdc813e0972d2a5cfa20a` |
+| Established | 1600 | 62.5% | `0x6cd41664bd5a2d765153ea60de36cf005f41c41d102b4a62af457d8a59f8e437` |
+| Reputable | 2000 | 77.0% | `0x4804122681cd41a9184ca049e5b48133010220753d51298c6dbe587a4f0c9cd5` |
+
+Fixed maturity is Unix `1803859200` (`2027-03-01 00:00:00 UTC`), the same date as the Somnia markets. The score signer is the same public verification address as Somnia, `0xaAb51184CA096F8ea48331a4262E689AAc4B5787`. The demo lender is `0x8C6eE34413f0c7D472Ab157fbED84De1234EF54F`.
+
+### Somnia testnet
 
 The trading application runs entirely against public Somnia testnet infrastructure — the DreamDEX indexer, the Somnia RPC, and the Ethos API. The credit layer is deployed and verified:
 
@@ -1165,13 +1227,10 @@ Every market uses:
 Deployment values exist in two locations because the Node service reads JSON
 while the browser imports typed TypeScript:
 
-1. `deployments/somnia-testnet.json` is the machine-readable service manifest.
-2. `frontend/src/config/credit.ts` is the frontend's typed deployment constant.
+1. `deployments/somnia-testnet.json` and `deployments/mezo-testnet.json` are the machine-readable service manifests. The service reads whichever file `MANIFEST` names.
+2. `frontend/src/config/credit.ts` holds both typed deployments. `VITE_TARGET` selects one at build time.
 
-They must be updated together after any redeployment. DreamDEX core addresses
-and venue collateral are not copied from this Covenant manifest; they are sourced
-from the official SDK deployment manifest in `frontend/src/config/chain.ts` and
-`frontend/src/config/dreamdex.ts`.
+A manifest and the matching TypeScript block must be updated together after any redeployment. DreamDEX core addresses and Somnia venue collateral are not copied from the Covenant manifest; they come from the official SDK deployment manifest in `frontend/src/config/chain.ts` and `frontend/src/config/dreamdex.ts`.
 
 ### Live-Deployment Limitations
 
@@ -1194,6 +1253,7 @@ from the official SDK deployment manifest in `frontend/src/config/chain.ts` and
 - [x] One-command Somnia deployment script + runbook
 - [x] Deep DreamDEX integration: live oracle price feed, on-chain status gating, volume telemetry, settled-market redemption scan
 - [x] Deploy to Somnia testnet and publish verified addresses
+- [x] Deploy the same credit engine to Mezo testnet: MUSD loan token, Mezo BTC collateral, Skip BTC/USD oracle, `VITE_TARGET=mezo`
 - [ ] Reproducible demo video
 
 ### Planned
@@ -1220,8 +1280,11 @@ from the official SDK deployment manifest in `frontend/src/config/chain.ts` and
 
 ## Documentation
 
+- [`docs/Mezo.md`](./docs/Mezo.md): Mezo testnet deployment, Skip oracle, and the public demo
 - [`docs/CoreMath.md`](./docs/CoreMath.md): protocol arithmetic and invariants
 - [`offchain/SIGNING.md`](./offchain/SIGNING.md): EIP-712 offer production and validation
+- [Mezo developer getting started](https://mezo.org/docs/developers/getting-started/)
+- [Borrow testnet MUSD](https://mezo.org/docs/users/borrow/mint-musd/)
 - [DreamDEX Event Contracts documentation](https://docs.dreamdex.io/developers/event-contracts)
 - [DreamDEX market structure and lifecycle](https://docs.dreamdex.io/developers/event-contracts/market-structure)
 - [DreamDEX bot kit](https://github.com/somnia-chain/dreamdex-bot-kit)

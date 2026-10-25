@@ -104,6 +104,12 @@ SCALE = ORACLE_PRICE_SCALE * 10^loanDecimals
 - **I3.2 (staleness → revert).** `price()` reverts if `updatedAt` is older than the wrapper's `STALENESS` window. `isHealthy` therefore reverts on liquidation of a stale market — the correct behaviour for lender protection.
 - **I3.3 (positive answer).** `price() > 0` on every successful read. Negative or zero Chainlink answers revert.
 
+### Mezo Skip feed
+
+The Mezo deployment does not use `ChainlinkBtcUsdOracle`. `SkipBtcUsdOracle` in `script/DeployMezo.s.sol` wraps the Skip BTC/USD precompile at `0x7b7c000000000000000000000000000000000015`. Loan, collateral, and feed are all 18 decimals, so the constructor scale is `1e18` and `price() = answer * 1e18`.
+
+Skip's `decimals()` selector reenters. The adapter therefore hardcodes the feed scale and calls only `latestRoundData` inside `price()`. A zero answer, a negative answer, or an update older than the configured staleness (6 hours on the live deployment) reverts. Do not call `price()` from the deploy script: Forge's simulator rejects some of those staticcalls even though `cast call` succeeds after the contract is on chain.
+
 ---
 
 ## §4. Healthiness — the LLTV constraint

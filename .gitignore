@@ -18,6 +18,7 @@ keystore/
 *.keystore
 # Private-key exports and signatures generated while testing signers
 offchain/*.sig
+offchain/offer-book.json
 
 # ── Foundry ─────────────────────────────────────────────────────────────
 cache/

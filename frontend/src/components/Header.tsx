@@ -8,6 +8,7 @@ import { WalletBalancesMenu } from "./WalletBalances";
 import { useDreamDexQuoteBalance } from "../hooks/useDreamDex";
 import { EthosMark, IconMenu, IconX } from "./icons";
 import { useEthosCredit } from "../hooks/useEthosScore";
+import { IS_MEZO } from "../config/target";
 
 /*
   Product chrome in the Sotto idiom — an editorial masthead, not a toolbar.
@@ -33,13 +34,20 @@ import { useEthosCredit } from "../hooks/useEthosScore";
             tap, every hit target ≥44px.
 */
 
-const PRIMARY_NAV = [
-  { to: "/", label: "Overview" },
-  { to: "/markets", label: "Markets" },
-  { to: "/credit", label: "Credit" },
-  { to: "/positions", label: "Positions" },
-  { to: "/docs", label: "Docs" },
-] as const;
+const PRIMARY_NAV = IS_MEZO
+  ? [
+      { to: "/", label: "Borrow" },
+      { to: "/markets", label: "Markets" },
+      { to: "/positions", label: "Positions" },
+      { to: "/docs", label: "Docs" },
+    ]
+  : [
+      { to: "/", label: "Overview" },
+      { to: "/markets", label: "Markets" },
+      { to: "/credit", label: "Credit" },
+      { to: "/positions", label: "Positions" },
+      { to: "/docs", label: "Docs" },
+    ];
 
 export function Header() {
   const { pathname } = useLocation();
@@ -173,7 +181,7 @@ function EthosStatus() {
 
   return (
     <Link
-      to="/credit"
+      to={IS_MEZO ? "/" : "/credit"}
       title="Your Ethos credibility · click for the credit tier breakdown"
       className="hidden lg:inline-flex items-center gap-2 h-9 pl-2.5 pr-3 rounded-md
                   border border-line hover:border-line-strong hover:bg-ink-900
@@ -204,7 +212,7 @@ function TokenStatus() {
 
   return (
     <div
-      title="Spendable DreamDEX venue collateral in your wallet"
+      title={IS_MEZO ? "MUSD in this wallet. Collateral is BTC." : "Spendable DreamDEX venue collateral in your wallet"}
       className="hidden xl:inline-flex items-center h-9 px-3 rounded-md border border-line"
     >
       {quote.isLoading ? (
@@ -212,7 +220,7 @@ function TokenStatus() {
       ) : (
         <>
           <span className="font-mono text-body-sm text-slate-100 tabular-nums">
-            {quote.formatted ?? "0"}
+            {(quote.formatted ?? 0).toLocaleString("en-US", { maximumFractionDigits: 2 })}
           </span>
           <span className="ml-1.5 text-micro text-muted whitespace-nowrap">{quote.symbol}</span>
         </>

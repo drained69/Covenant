@@ -1,9 +1,9 @@
 import { useState, useCallback } from "react";
-import { useAccount, useWriteContract, usePublicClient } from "wagmi";
+import { useAccount, useWriteContract, usePublicClient, useSwitchChain } from "wagmi";
 import { useQueryClient } from "@tanstack/react-query";
 import toast from "react-hot-toast";
 import { BaseError, type PublicClient } from "viem";
-import { EXPLORER } from "../config/chain";
+import { CHAIN, EXPLORER } from "../config/chain";
 import { describeError } from "../lib/errors";
 
 /** Thrown when a transaction mines with status "reverted". */
@@ -46,8 +46,9 @@ async function revertReasonFor(client: PublicClient, hash: `0x${string}`): Promi
  *   - invalidates every wagmi/react-query read so the UI follows the chain
  */
 export function useTx() {
-  const { address } = useAccount();
-  const client = usePublicClient();
+  const { address, chainId } = useAccount();
+  const { switchChainAsync } = useSwitchChain();
+  const client = usePublicClient({ chainId: CHAIN.id });
   const { writeContractAsync } = useWriteContract();
   const queryClient = useQueryClient();
   const [pending, setPending] = useState(false);
@@ -64,12 +65,17 @@ export function useTx() {
       const t = toast.loading(`${label} — simulating…`);
       setPending(true);
       try {
+        if (chainId !== CHAIN.id) {
+          toast.loading(`Switch your wallet to ${CHAIN.name}…`, { id: t });
+          await switchChainAsync({ chainId: CHAIN.id });
+          toast.loading(`${label} — simulating…`, { id: t });
+        }
         if (client) {
           await client.simulateContract({ ...(params as any), account: address });
         }
 
         toast.loading(`${label} — confirm in wallet…`, { id: t });
-        const hash = await writeContractAsync(params);
+        const hash = await writeContractAsync({ ...params, chainId: CHAIN.id } as typeof params);
         toast.loading(
           <span>
             {label} · submitted{" "}
@@ -128,7 +134,7 @@ export function useTx() {
         setPending(false);
       }
     },
-    [address, client, writeContractAsync, queryClient],
+    [address, chainId, switchChainAsync, client, writeContractAsync, queryClient],
   );
 
   return { send, pending };

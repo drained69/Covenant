@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { QRCodeSVG } from "qrcode.react";
 import { TELEGRAM_API_URL, TELEGRAM_BOT_URL } from "../config/telegram";
+import { IS_MEZO } from "../config/target";
 import { IconAlert, IconCheck, IconClock, IconCopy, IconExternal, IconWallet } from "../components/icons";
 
 type TelegramWebApp = {
@@ -430,11 +431,17 @@ function TelegramConnectFallback() {
             Don't need Telegram?
           </div>
           <p className="mt-1 text-body-sm text-subtle leading-relaxed">
-            Covenant's web app trades DreamDEX Event Contracts without any
-            Telegram binding. Linking is only needed for bot-side commands
-            (<code className="code-inline">/trade</code>,{" "}
-            <code className="code-inline">/positions</code>,{" "}
-            <code className="code-inline">/wallet</code>).
+            {IS_MEZO ? (
+              "Borrowing and supplying MUSD on this site do not need Telegram. The bot is the Somnia trading companion, not this credit market."
+            ) : (
+              <>
+                Covenant&apos;s web app trades DreamDEX Event Contracts without any Telegram
+                binding. Linking is only needed for bot-side commands (
+                <code className="code-inline">/trade</code>,{" "}
+                <code className="code-inline">/positions</code>,{" "}
+                <code className="code-inline">/wallet</code>).
+              </>
+            )}
           </p>
           <a
             href="/markets"
