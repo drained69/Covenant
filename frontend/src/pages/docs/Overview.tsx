@@ -4,7 +4,6 @@ import { DocPage, Section, Prose, Note } from "./_primitives";
 import { IconArrowRight, IconChevronRight, IconExternal } from "../../components/icons";
 import { CHAIN } from "../../config/chain";
 import { CREDIT_TOKENS } from "../../config/credit";
-import { IS_MEZO } from "../../config/target";
 
 /*
   The docs index.
@@ -24,17 +23,11 @@ export function Overview() {
       eyebrow="Documentation"
       title="Covenant"
       lede={
-        IS_MEZO ? (
+        (
           <>
             Borrow {CREDIT_TOKENS.loan.symbol} against {CREDIT_TOKENS.collateral.symbol} on {CHAIN.name}.
             Ethos picks the market. The market fixes the maximum loan-to-value. These pages are
             the operating guide, the mechanism, and the addresses this app calls.
-          </>
-        ) : (
-          <>
-            Reputation-aware trading capital for DreamDEX Event Contracts on Somnia. These pages
-            cover how the protocol works, what the reputation layer actually enforces, and the
-            math the contracts run.
           </>
         )
       }
@@ -45,18 +38,14 @@ export function Overview() {
       >
         <Prose>
           <p>
-            {IS_MEZO
-              ? `A loan on this deployment is MUSD borrowed against Mezo BTC. Every wallet can post collateral. The Ethos score decides which of the three markets will extend new debt, and how high the loan-to-value on that market is.`
-              : `Prediction markets are capital-intensive. Traders must fully fund every position even when they carry a strong, portable on-chain reputation — and every wallet is treated identically regardless of how it has behaved across the ecosystem.`}
+            {`A loan on this deployment is MUSD borrowed against Mezo BTC. Every wallet can post collateral. The Ethos score decides which of the three markets will extend new debt, and how high the loan-to-value on that market is.`}
           </p>
           <p>
             Covenant combines two primitives: Ethos credibility as an underwriting signal, and
             collateral as the security mechanism. A wallet's score maps it to a transparent
             credit tier that sets the terms under which its collateral supports borrowed
             capital
-            {IS_MEZO
-              ? ". Reputation improves the loan-to-value. It never replaces the BTC, and a falling score cannot block a repayment or a solvent withdrawal."
-              : " — and that capital flows straight into live DreamDEX markets. Reputation improves access; it never replaces collateral, and a falling score can never block an exit."}
+            {". Reputation improves the loan-to-value. It never replaces the BTC, and a falling score cannot block a repayment or a solvent withdrawal."}
           </p>
         </Prose>
 
@@ -69,7 +58,7 @@ export function Overview() {
             <div key={c.title} className="card p-6 space-y-3">
               <div className="card-title">{c.title}</div>
               <p className="text-body-sm text-slate-300 leading-relaxed">
-                {IS_MEZO && c.title === "Terms fixed at issuance"
+                {c.title === "Terms fixed at issuance"
                   ? `This deployment lends at par. You borrow ${CREDIT_TOKENS.loan.symbol} and repay the same amount at maturity. The rate is fixed when the loan opens. It does not move with utilization.`
                   : c.body}
               </p>
@@ -156,7 +145,7 @@ export function Overview() {
         subtitle="What this deployment is, and what it is not."
       >
         <Note title="Unaudited testnet software">
-          {IS_MEZO ? (
+          {(
             <>
               <p>
                 Covenant lends on {CHAIN.name} with testnet {CREDIT_TOKENS.loan.symbol} and{" "}
@@ -171,22 +160,6 @@ export function Overview() {
                 <Link to="/docs/credit-ladder" className="link">Credit tiers</Link> for the score each
                 market requires, and <Link to="/docs/how-to" className="link">How to use Covenant</Link> for
                 the borrow, supply, and repay steps.
-              </p>
-            </>
-          ) : (
-            <>
-              <p>
-                Covenant trades on {CHAIN.name} with test tokens. The contracts have not been
-                audited. Nothing here should hold production funds, and the tokens in the
-                markets have no value — the venue collateral drips from the{" "}
-                <Link to="/faucet" className="link">faucet</Link>.
-              </p>
-              <p>
-                The on-chain tier gates and three credit markets are deployed on Somnia testnet.
-                Every DreamDEX order still settles against real TestUSDC held by your wallet;
-                available credit must be borrowed into that balance before it can be traded. See{" "}
-                <Link to="/docs/credit-ladder" className="link">Credit tiers</Link> for what is
-                enforced today and what is next.
               </p>
             </>
           )}
@@ -255,8 +228,8 @@ const CONSEQUENCES = [
 ] as const;
 
 /*
-  Three audiences, and the pages each can skip. The trader path leads with
-  How it works because a trader evaluating the product wants the flow before
+  Three audiences, and the pages each can skip. The borrower path leads with
+  How it works because a borrower evaluating the product wants the flow before
   the policy detail.
 */
 const READING_PATHS = [
@@ -271,7 +244,7 @@ const READING_PATHS = [
   {
     goal: "Qualify for capital",
     steps: [
-      { to: IS_MEZO ? "/" : "/credit", label: IS_MEZO ? "Borrow" : "Your tier" },
+      { to: "/", label: "Borrow" },
       { to: "/docs/credit-ladder", label: "Credit tiers" },
       { to: "/docs/reference", label: "Reference" },
     ],

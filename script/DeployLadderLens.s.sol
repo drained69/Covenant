@@ -29,7 +29,7 @@ import {ICovenant} from "../src/interfaces/ICovenant.sol";
 ///
 /// Then verify using the target network's supported verifier:
 ///   forge verify-contract <addr> src/periphery/CreditLadderLens.sol:CreditLadderLens \
-///     --chain 50312
+///     --chain 31611
 contract DeployLadderLens is Script {
     function run() external returns (address lensAddress) {
         uint256 pk = vm.envUint("PRIVATE_KEY");

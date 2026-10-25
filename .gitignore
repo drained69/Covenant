@@ -87,5 +87,3 @@ Media Kit/
 Post.md
 Note.md
 
-# Telegram bot runtime state (public wallet links, persisted via Railway volume)
-telegram-bot/data/

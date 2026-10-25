@@ -18,10 +18,10 @@ exclude_lints = [
 ]
 
 # Named RPC endpoints — resolved from .env. Usage:
-#   forge script script/DeployCovenant.s.sol --rpc-url somnia --broadcast
-#   forge test --fork-url somnia
+#   forge script script/DeployCovenant.s.sol --rpc-url mezo --broadcast
+#   forge test --fork-url mezo
 # ${RPC_URL} is read from the process env; forge auto-loads .env into it when
 # it starts, so you no longer need `source .env` before every command.
 [rpc_endpoints]
-somnia = "${RPC_URL}"
+mezo = "${RPC_URL}"
 [etherscan]

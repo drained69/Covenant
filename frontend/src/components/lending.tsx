@@ -3,7 +3,7 @@ import { Link, useNavigate } from "react-router-dom";
 import { useAccount } from "wagmi";
 import { useConnectModal } from "@rainbow-me/rainbowkit";
 import { CREDIT, CREDIT_TOKENS, type TierKey } from "../config/credit";
-import { ETHOS_TIERS } from "../config/dreamdex";
+import { ETHOS_TIERS } from "../config/ethos";
 import { EXPLORER } from "../config/chain";
 import { displayLoan, liquidationBonus, type MarketStats } from "../hooks/useCovenant";
 import { fmtPct, shortAddr } from "../lib/format";

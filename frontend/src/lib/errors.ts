@@ -2,7 +2,7 @@ import { BaseError, ContractFunctionRevertedError } from "viem";
 
 /**
  * Pulls the most specific message out of a viem/SDK error, preferring custom
- * error names over wall-of-text reverts. Shared by the DreamDEX order panel,
+ * error names over wall-of-text reverts. Shared by the borrow and lending panels,
  * the faucet, and order cancellation so every failure surface reads the same.
  */
 export function describeError(e: unknown): string {

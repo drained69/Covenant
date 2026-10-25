@@ -3,7 +3,7 @@
   "private": true,
   "version": "0.1.0",
   "type": "module",
-  "description": "Covenant — compliance-native institutional credit protocol UI",
+  "description": "Covenant — reputation-priced MUSD credit on Mezo",
   "scripts": {
     "dev": "vite",
     "build": "tsc -b && vite build",
@@ -11,9 +11,7 @@
   },
   "dependencies": {
     "@rainbow-me/rainbowkit": "^2.2.0",
-    "@somnia-chain/markets-sdk": "^0.28.1",
     "@tanstack/react-query": "^5.60.5",
-    "qrcode.react": "^4.2.0",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
     "react-hot-toast": "^2.4.1",

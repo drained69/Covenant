@@ -5,36 +5,25 @@ import { RainbowKitProvider, lightTheme } from "@rainbow-me/rainbowkit";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { BrowserRouter } from "react-router-dom";
 import { Toaster } from "react-hot-toast";
-import { SomniaMarketsProvider } from "@somnia-chain/markets-sdk/react";
 
 import { App } from "./App";
 import { wagmiConfig } from "./config/wagmi";
-import { dreamdexClient } from "./config/dreamdex";
-import { IS_MEZO } from "./config/target";
 
-if (!IS_MEZO) document.title = "Covenant — Reputation-aware trading capital";
+
 
 import "@rainbow-me/rainbowkit/styles.css";
 import "./index.css";
 
 const queryClient = new QueryClient();
 
-/** DreamDEX's provider is Somnia-only. The Mezo build has no venue client. */
-function VenueProvider({ children }: { children: React.ReactNode }) {
-  if (!dreamdexClient) return children;
-  return <SomniaMarketsProvider client={dreamdexClient}>{children}</SomniaMarketsProvider>;
-}
 
 /**
  * App entrypoint. Providers layer bottom-up:
  *   Wagmi (chain + transport) → ReactQuery (cache) → RainbowKit (wallet UI) →
- *   SomniaMarkets (live DreamDEX tail) → Router (client-side routes) →
- *   toast portal → App.
+ *   Router (client-side routes) → toast portal → App.
  *
  * That order matters: RainbowKit reads from wagmi + query, Router reads from
- * window. SomniaMarketsProvider sits above the Router so the venue watch and
- * its local store survive navigation — moving between markets re-uses the tail
- * rather than re-hydrating it.
+ * window.
  */
 ReactDOM.createRoot(document.getElementById("root")!).render(
   <React.StrictMode>
@@ -58,7 +47,6 @@ ReactDOM.createRoot(document.getElementById("root")!).render(
             fontStack: "system",
           })}
         >
-          <VenueProvider>
             <BrowserRouter>
               <App />
               <Toaster
@@ -80,7 +68,6 @@ ReactDOM.createRoot(document.getElementById("root")!).render(
                 }}
               />
             </BrowserRouter>
-          </VenueProvider>
         </RainbowKitProvider>
       </QueryClientProvider>
     </WagmiProvider>

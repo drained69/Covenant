@@ -28,15 +28,15 @@ import {EcrecoverNotary} from "../../src/notaries/EcrecoverNotary.sol";
 import {EthosTierGate} from "../../src/reputation/EthosTierGate.sol";
 import {BtcUsdOracle} from "../../src/oracles/BtcUsdOracle.sol";
 
-/// @dev End-to-end flow test mirroring `script/DeploySomnia.s.sol` exactly: a
+/// @dev End-to-end flow test mirroring `script/DeployMezo.s.sol`: a
 ///      compliance-mode core, three Ethos tier gates, three markets at
-///      LLTV 38.5/62.5/77, and the full trader path — score authorization,
+///      LLTV 38.5/62.5/77, and the full borrower path — score authorization,
 ///      collateral, borrow via a signed lender offer, health, repay, withdraw.
 ///
-///      This is the contract-level rehearsal of the hackathon demo. Tokens are
-///      the suite's 18-dec mocks, so the oracle is constructed with (18, 18, 8)
-///      decimals; the production deployment uses (8, 6, 8) with the DreamDEX
-///      venue token — the math is identical, only the scale differs.
+///      This is the contract-level rehearsal of the Mezo demo. Tokens are 18-dec
+///      mocks, matching Mezo's MUSD and BTC (both 18 decimals), so the oracle
+///      is constructed with (18, 18, 8). The deployment prices BTC through the
+///      Skip BTC/USD feed; a settable BtcUsdOracle stands in for it here.
 contract EthosCreditFlowTest is Test {
     using UtilsLib for uint256;
 
@@ -47,13 +47,13 @@ contract EthosCreditFlowTest is Test {
     EthosTierGate internal establishedGate; // threshold 1600 -> LLTV_1 (62.5%)
     EthosTierGate internal reputableGate; // threshold 2000 -> LLTV_2 (77.0%)
 
-    ERC20Permit internal loanToken; // DreamDEX venue collateral stand-in
+    ERC20Permit internal loanToken; // MUSD stand-in
     ERC20Permit internal testBtc; // collateral
     BtcUsdOracle internal oracle; // BTC/USD, staleness disabled
 
     address internal deployer = address(this);
-    address internal trader;
-    uint256 internal traderKey;
+    address internal borrower;
+    uint256 internal borrowerKey;
     address internal lender;
     uint256 internal lenderKey;
     uint256 internal scoreSignerKey = 0x5c0ce;
@@ -67,16 +67,16 @@ contract EthosCreditFlowTest is Test {
     uint256 internal collateralPrice; // oracle.price() output
 
     function setUp() public {
-        (trader, traderKey) = makeAddrAndKey("trader");
+        (borrower, borrowerKey) = makeAddrAndKey("borrower");
         (lender, lenderKey) = makeAddrAndKey("lender");
         scoreSigner = vm.addr(scoreSignerKey);
 
         // Stand where the deployment will stand: maturity ~7 months out.
         vm.warp(1785000000); // 2026-07-31
 
-        /* ── deployment, as DeploySomnia.s.sol performs it ─────────── */
-        loanToken = new ERC20Permit("TestUSDC", "tUSDC");
-        testBtc = new ERC20Permit("Test Wrapped BTC", "tBTC");
+        /* ── deployment, as DeployMezo.s.sol performs it ──────────── */
+        loanToken = new ERC20Permit("Mock MUSD", "MUSD");
+        testBtc = new ERC20Permit("Mock BTC", "BTC");
 
         oracle = new BtcUsdOracle(deployer, 18, 18, 8, 0);
         oracle.setPrice(btcRawPrice);
@@ -100,61 +100,61 @@ contract EthosCreditFlowTest is Test {
 
     /* ── flow ──────────────────────────────────────────────────────── */
 
-    /// @dev The headline path: a 1,842-score trader borrows 10,000 tUSDC against
-    ///      tBTC in the Established market, then repays and exits.
-    function testEstablishedTraderBorrowsRepaysAndExits() public {
+    /// @dev The headline path: a 1,842-score borrower borrows 10,000 MUSD against
+    ///      BTC in the Established market, then repays and exits.
+    function testEstablishedBorrowerBorrowsRepaysAndExits() public {
         Market memory market = marketAt(establishedGate, LLTV_1);
         bytes32 id = toId(market);
         uint256 borrowUnits = 10_000e18;
 
         fundLender(market);
 
-        // 1. Authorize the trader's score at the Established gate.
-        authorizeScore(establishedGate, trader, 1842);
+        // 1. Authorize the borrower's score at the Established gate.
+        authorizeScore(establishedGate, borrower, 1842);
 
-        // 2. Trader posts collateral: enough for 10k debt at 62.5% LLTV.
+        // 2. Borrower posts collateral: enough for 10k debt at 62.5% LLTV.
         uint256 collateral = borrowUnits.mulDivUp(WAD, LLTV_1).mulDivUp(ORACLE_PRICE_SCALE, collateralPrice);
-        deal(address(testBtc), trader, collateral);
-        vm.startPrank(trader);
+        deal(address(testBtc), borrower, collateral);
+        vm.startPrank(borrower);
         testBtc.approve(address(covenant), collateral);
-        covenant.supplyCollateral(market, 0, collateral, trader);
+        covenant.supplyCollateral(market, 0, collateral, borrower);
         vm.stopPrank();
 
         // 3. Borrow: fill the lender's par offer for 10k units.
-        uint256 loanBefore = loanToken.balanceOf(trader);
-        vm.prank(trader);
+        uint256 loanBefore = loanToken.balanceOf(borrower);
+        vm.prank(borrower);
         (uint256 takenUnits,) =
-            covenant.fillOffer(lenderOffer(market), lenderNotaryData(market), borrowUnits, trader, trader, address(0), "");
+            covenant.fillOffer(lenderOffer(market), lenderNotaryData(market), borrowUnits, borrower, borrower, address(0), "");
 
         assertEq(takenUnits, borrowUnits, "units taken");
-        assertEq(covenant.debtOf(id, trader), borrowUnits, "debt");
-        assertEq(loanToken.balanceOf(trader) - loanBefore, borrowUnits, "loan tokens received");
-        assertTrue(covenant.isHealthy(market, id, trader), "healthy after borrow");
+        assertEq(covenant.debtOf(id, borrower), borrowUnits, "debt");
+        assertEq(loanToken.balanceOf(borrower) - loanBefore, borrowUnits, "loan tokens received");
+        assertTrue(covenant.isHealthy(market, id, borrower), "healthy after borrow");
 
         // 4. Repay in full and exit with collateral.
-        deal(address(loanToken), trader, borrowUnits);
-        vm.startPrank(trader);
+        deal(address(loanToken), borrower, borrowUnits);
+        vm.startPrank(borrower);
         loanToken.approve(address(covenant), borrowUnits);
-        covenant.repay(market, borrowUnits, trader, address(0), "");
-        covenant.withdrawCollateral(market, 0, collateral, trader, trader);
+        covenant.repay(market, borrowUnits, borrower, address(0), "");
+        covenant.withdrawCollateral(market, 0, collateral, borrower, borrower);
         vm.stopPrank();
 
-        assertEq(covenant.debtOf(id, trader), 0, "debt after repay");
-        assertEq(testBtc.balanceOf(trader), collateral, "collateral returned");
+        assertEq(covenant.debtOf(id, borrower), 0, "debt after repay");
+        assertEq(testBtc.balanceOf(borrower), collateral, "collateral returned");
     }
 
     /// @dev The reputation ladder is real on-chain: the same collateral supports
     ///      more debt in higher-tier markets — 2× from Open to Reputable.
     function testTierLadderDoublesCapitalEfficiency() public {
-        uint256 collateral = 1e18; // 1 tBTC == $108,000
+        uint256 collateral = 1e18; // 1 BTC == $108,000
         uint256 collateralValue = collateral.mulDivDown(collateralPrice, ORACLE_PRICE_SCALE);
 
         uint256 openMax = collateralValue.mulDivDown(LLTV_0, WAD);
         uint256 estMax = collateralValue.mulDivDown(LLTV_1, WAD);
         uint256 repMax = collateralValue.mulDivDown(LLTV_2, WAD);
 
-        assertEqDecimal(openMax / 1e18, 41_580, 0, "1 tBTC supports ~41.6k at Open");
-        assertEqDecimal(repMax / 1e18, 83_160, 0, "1 tBTC supports ~83.2k at Reputable");
+        assertEqDecimal(openMax / 1e18, 41_580, 0, "1 BTC supports ~41.6k at Open");
+        assertEqDecimal(repMax / 1e18, 83_160, 0, "1 BTC supports ~83.2k at Reputable");
         assertApproxEqRel(repMax, openMax * 2, 1e16, "reputable is 2x open");
         assertTrue(estMax > openMax && repMax > estMax, "monotone ladder");
     }
@@ -165,25 +165,25 @@ contract EthosCreditFlowTest is Test {
         Market memory market = marketAt(establishedGate, LLTV_1);
         fundLender(market);
 
-        deal(address(testBtc), trader, 1e18);
-        vm.startPrank(trader);
+        deal(address(testBtc), borrower, 1e18);
+        vm.startPrank(borrower);
         testBtc.approve(address(covenant), 1e18);
-        covenant.supplyCollateral(market, 0, 1e18, trader);
+        covenant.supplyCollateral(market, 0, 1e18, borrower);
         vm.stopPrank();
 
-        vm.prank(trader);
+        vm.prank(borrower);
         vm.expectRevert(abi.encodeWithSelector(ICovenant.BorrowerIneligible.selector));
-        covenant.fillOffer(lenderOffer(market), lenderNotaryData(market), 100e18, trader, trader, address(0), "");
+        covenant.fillOffer(lenderOffer(market), lenderNotaryData(market), 100e18, borrower, borrower, address(0), "");
     }
 
     /// @dev A 1,200 score authorizes fine at the Open gate but not Established —
     ///      tiers bind terms, not access to the protocol.
     function testLowScoreBorrowsAtOpenTierOnly() public {
-        authorizeScore(openGate, trader, 1200);
-        authorizeScore(establishedGate, trader, 1200);
+        authorizeScore(openGate, borrower, 1200);
+        authorizeScore(establishedGate, borrower, 1200);
 
-        assertTrue(openGate.canIncreaseDebt(trader), "open admits any score");
-        assertFalse(establishedGate.canIncreaseDebt(trader), "established requires 1600");
+        assertTrue(openGate.canIncreaseDebt(borrower), "open admits any score");
+        assertFalse(establishedGate.canIncreaseDebt(borrower), "established requires 1600");
     }
 
     /// @dev Lending and liquidation are never reputation-gated — only new debt is.
@@ -200,41 +200,41 @@ contract EthosCreditFlowTest is Test {
         uint256 borrowUnits = 1_000e18;
 
         fundLender(market);
-        authorizeScore(establishedGate, trader, 1842, uint64(block.timestamp + 1 hours));
+        authorizeScore(establishedGate, borrower, 1842, uint64(block.timestamp + 1 hours));
 
         uint256 collateral = borrowUnits.mulDivUp(WAD, LLTV_1).mulDivUp(ORACLE_PRICE_SCALE, collateralPrice);
-        deal(address(testBtc), trader, collateral);
-        vm.startPrank(trader);
+        deal(address(testBtc), borrower, collateral);
+        vm.startPrank(borrower);
         testBtc.approve(address(covenant), collateral);
-        covenant.supplyCollateral(market, 0, collateral, trader);
+        covenant.supplyCollateral(market, 0, collateral, borrower);
         vm.stopPrank();
 
-        vm.prank(trader);
-        covenant.fillOffer(lenderOffer(market), lenderNotaryData(market), borrowUnits, trader, trader, address(0), "");
+        vm.prank(borrower);
+        covenant.fillOffer(lenderOffer(market), lenderNotaryData(market), borrowUnits, borrower, borrower, address(0), "");
 
         // Authorization expires.
         vm.warp(block.timestamp + 2 hours);
-        assertFalse(establishedGate.canIncreaseDebt(trader), "expired score");
+        assertFalse(establishedGate.canIncreaseDebt(borrower), "expired score");
 
         // Post more collateral — supplying is ungated — and try to borrow again.
         uint256 moreCollateral = borrowUnits.mulDivUp(WAD, LLTV_1).mulDivUp(ORACLE_PRICE_SCALE, collateralPrice);
-        deal(address(testBtc), trader, moreCollateral);
-        vm.startPrank(trader);
+        deal(address(testBtc), borrower, moreCollateral);
+        vm.startPrank(borrower);
         testBtc.approve(address(covenant), moreCollateral);
-        covenant.supplyCollateral(market, 0, moreCollateral, trader);
+        covenant.supplyCollateral(market, 0, moreCollateral, borrower);
         vm.expectRevert(abi.encodeWithSelector(ICovenant.BorrowerIneligible.selector));
-        covenant.fillOffer(lenderOffer(market), lenderNotaryData(market), borrowUnits, trader, trader, address(0), "");
+        covenant.fillOffer(lenderOffer(market), lenderNotaryData(market), borrowUnits, borrower, borrower, address(0), "");
         vm.stopPrank();
 
         // Exits are not blocked.
-        deal(address(loanToken), trader, borrowUnits);
-        vm.startPrank(trader);
+        deal(address(loanToken), borrower, borrowUnits);
+        vm.startPrank(borrower);
         loanToken.approve(address(covenant), borrowUnits);
-        covenant.repay(market, borrowUnits, trader, address(0), "");
-        covenant.withdrawCollateral(market, 0, collateral + moreCollateral, trader, trader);
+        covenant.repay(market, borrowUnits, borrower, address(0), "");
+        covenant.withdrawCollateral(market, 0, collateral + moreCollateral, borrower, borrower);
         vm.stopPrank();
 
-        assertEq(covenant.debtOf(id, trader), 0, "debt cleared");
+        assertEq(covenant.debtOf(id, borrower), 0, "debt cleared");
     }
 
     /* ── helpers ───────────────────────────────────────────────────── */

@@ -5,22 +5,21 @@ import { ConnectButton } from "@rainbow-me/rainbowkit";
 import { useAccount } from "wagmi";
 import { Brand } from "./Brand";
 import { WalletBalancesMenu } from "./WalletBalances";
-import { useDreamDexQuoteBalance } from "../hooks/useDreamDex";
+import { useLoanTokenBalance } from "../hooks/useLoanTokenBalance";
 import { EthosMark, IconMenu, IconX } from "./icons";
 import { useEthosCredit } from "../hooks/useEthosScore";
-import { IS_MEZO } from "../config/target";
 
 /*
   Product chrome in the Sotto idiom — an editorial masthead, not a toolbar.
 
   Bar shape, one line, three tracks (1fr · auto · 1fr):
-    [Brand]        [Overview Markets Credit Positions Docs]        [Ethos · Token · Wallet]
+    [Brand]        [Borrow Markets Positions Docs]        [Ethos · Token · Wallet]
 
   The brand anchors the left track with room to breathe; the nav is CENTRED
   (the specific Sotto geometry — the tab set floats equidistant from both
   edges at every viewport width, which reads as a masthead rather than an
-  app toolbar); the right track carries the trader's three live facts in
-  reading order: who vouches for me (Ethos), what can I spend (TestUSDC),
+  app toolbar); the right track carries the borrower's three live facts in
+  reading order: who vouches for me (Ethos), what MUSD do I hold,
   and which wallet am I (address). Each is a compact bordered instrument,
   not a pill — Sotto's discipline is rectangles with hairlines.
 
@@ -29,22 +28,14 @@ import { IS_MEZO } from "../config/target";
 
   Mobile is not a scaled-down desktop:
     Bar   → [Brand]                                [Wallet] [☰]
-    Sheet → full-height panel from the right with the five tabs, the Ethos
+    Sheet → full-height panel from the right with the four tabs, the Ethos
             surface, and the wallet trigger — every action reachable in one
             tap, every hit target ≥44px.
 */
 
-const PRIMARY_NAV = IS_MEZO
-  ? [
+const PRIMARY_NAV = [
       { to: "/", label: "Borrow" },
       { to: "/markets", label: "Markets" },
-      { to: "/positions", label: "Positions" },
-      { to: "/docs", label: "Docs" },
-    ]
-  : [
-      { to: "/", label: "Overview" },
-      { to: "/markets", label: "Markets" },
-      { to: "/credit", label: "Credit" },
       { to: "/positions", label: "Positions" },
       { to: "/docs", label: "Docs" },
     ];
@@ -181,7 +172,7 @@ function EthosStatus() {
 
   return (
     <Link
-      to={IS_MEZO ? "/" : "/credit"}
+      to={"/"}
       title="Your Ethos credibility · click for the credit tier breakdown"
       className="hidden lg:inline-flex items-center gap-2 h-9 pl-2.5 pr-3 rounded-md
                   border border-line hover:border-line-strong hover:bg-ink-900
@@ -207,12 +198,12 @@ function EthosStatus() {
  */
 function TokenStatus() {
   const { isConnected } = useAccount();
-  const quote = useDreamDexQuoteBalance();
+  const quote = useLoanTokenBalance();
   if (!isConnected) return null;
 
   return (
     <div
-      title={IS_MEZO ? "MUSD in this wallet. Collateral is BTC." : "Spendable DreamDEX venue collateral in your wallet"}
+      title={"MUSD in this wallet. Collateral is BTC."}
       className="hidden xl:inline-flex items-center h-9 px-3 rounded-md border border-line"
     >
       {quote.isLoading ? (

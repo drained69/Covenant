@@ -19,7 +19,6 @@ const manifest = JSON.parse(readFileSync(new URL(MANIFEST_PATH, import.meta.url)
 function rpcUrl() {
   if (process.env.COVENANT_RPC_URL) return process.env.COVENANT_RPC_URL;
   if (Number(manifest.chainId) === 31611) return "https://rpc.test.mezo.org";
-  if (Number(manifest.chainId) === 50312) return "https://api.infra.testnet.somnia.network";
   throw new Error("Set COVENANT_RPC_URL.");
 }
 

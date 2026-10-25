@@ -1,6 +1,6 @@
 # Mezo testnet deployment
 
-Covenant on Mezo is the credit engine only. Borrowers post Mezo BTC, authorize a short-lived Ethos score, and fill a lender offer for MUSD. Debt is fixed-rate and repaid one-for-one in MUSD. DreamDEX Event Contracts stay on Somnia. The frontend keeps that app when `VITE_TARGET` is unset and switches to this one when `VITE_TARGET=mezo`.
+Covenant runs on Mezo testnet. Borrowers post Mezo BTC, authorize a short-lived Ethos score, and fill a lender offer for MUSD. Debt is fixed-rate and repaid one-for-one in MUSD.
 
 The deployment below is already on chain. Do not rebroadcast `script/DeployMezo.s.sol` against these addresses.
 
@@ -8,7 +8,7 @@ The deployment below is already on chain. Do not rebroadcast `script/DeployMezo.
 
 | Surface | URL |
 |---|---|
-| App | https://covenant-web-production.up.railway.app |
+| App | https://covenantv1.up.railway.app |
 | Credit service | https://covenant-api-production-90cf.up.railway.app |
 | Health | `GET /api/health` returns `chainId` 31611 and the three gates |
 | Offer | `GET /api/offer?market=open&units=1000000000000000000` |
@@ -79,7 +79,7 @@ The score signer address is `0xaAb51184CA096F8ea48331a4262E689AAc4B5787`. The de
 
 MUSD on this network is "Mezo USD", 18 decimals, at the address above. The mainnet MUSD address is different. Do not point this deployment at it.
 
-Mezo BTC is the ERC-20 precompile for native BTC. `balanceOf` mirrors the wallet's gas balance, and `decimals` is 18. Do not deploy an 8-decimal mock tBTC here. The Somnia tBTC (8 decimals) and DreamDEX TestUSDC (6 decimals) belong only to chain 50312.
+Mezo BTC is the ERC-20 precompile for native BTC. `balanceOf` mirrors the wallet's gas balance, and `decimals` is 18. Do not deploy an 8-decimal mock BTC here.
 
 The Skip feed's `latestRoundData` answer is 18 decimals, around 8e22 for a BTC price near $80,000. Its `decimals()` selector reenters, so nothing in this deployment calls it. `SkipBtcUsdOracle` hardcodes feed decimals as 18:
 
@@ -109,13 +109,13 @@ forge script script/DeployMezo.s.sol \
   --broadcast --slow --with-gas-price 1000 -vv
 ```
 
-`--tc DeployMezo` is required because `SkipBtcUsdOracle` is in the same file. Pass the Mezo RPC on the command line. `.env` `RPC_URL` is the Somnia RPC, and Foundry's `somnia` endpoint reads that variable. If a receipt is briefly null, poll `eth_getTransactionReceipt` instead of treating one empty response as a failed deploy. Resume a partial broadcast with `--resume` rather than starting a second set of contracts.
+`--tc DeployMezo` is required because `SkipBtcUsdOracle` is in the same file. Pass the Mezo RPC on the command line (or set `RPC_URL` in `.env`; Foundry's `mezo` endpoint reads it). If a receipt is briefly null, poll `eth_getTransactionReceipt` instead of treating one empty response as a failed deploy. Resume a partial broadcast with `--resume` rather than starting a second set of contracts.
 
 Bare Python `urllib` requests to `https://rpc.test.mezo.org` get HTTP 403. `cast` and `curl` with a normal user agent work.
 
 After the script logs addresses:
 
-1. Write them to `deployments/mezo-testnet.json` and to `MEZO_DEPLOYMENT` in `frontend/src/config/credit.ts`.
+1. Write them to `deployments/mezo-testnet.json` and to `DEPLOYMENT` in `frontend/src/config/credit.ts`.
 2. From the lender wallet, approve MUSD to the new Covenant core for the amount to be lent.
 3. Authorize the new `EcrecoverNotary` for that lender (`setIsAuthorized`).
 4. Start the service with the new manifest. The lender key and the score-signer key are environment variables, not file contents.
@@ -125,39 +125,33 @@ export SCORE_SIGNER_KEY=0x...
 export LENDER_KEY=0x...
 export MANIFEST=../deployments/mezo-testnet.json
 export PORT=3001
-node offchain/somnia-service.mjs
+node offchain/credit-service.mjs
 ```
 
-The service process is chain-agnostic. It reads `chainId`, contract addresses, and market ids from `MANIFEST`, then signs Ethos authorizations (EIP-712 domain "Covenant Ethos Score", version 1, `verifyingContract` = the gate) and lender buy offers at par (`MAX_TICK` 5820). The root image copies both manifests into `/app/offchain`. `MANIFEST` defaults to `./somnia-testnet.json`; the Mezo host overrides it to `./mezo-testnet.json`.
+The service process is chain-agnostic. It reads `chainId`, contract addresses, and market ids from `MANIFEST`, then signs Ethos authorizations (EIP-712 domain "Covenant Ethos Score", version 1, `verifyingContract` = the gate) and lender buy offers at par (`MAX_TICK` 5820). The root image copies the Mezo manifest into `/app/offchain` and sets `MANIFEST=./mezo-testnet.json`.
 
 ## Frontend
 
 ```bash
 cd frontend
-VITE_TARGET=mezo \
-VITE_CREDIT_SERVICE_URL=http://localhost:3001 \
-npm run dev
+VITE_CREDIT_SERVICE_URL=http://localhost:3001 npm run dev
 ```
 
-`IS_MEZO` is `import.meta.env.VITE_TARGET === "mezo"`. On that build:
+- `/` is the Borrow dashboard: protocol stats, your position, Ethos tier, borrowing power, and the market table.
+- `/markets`, `/markets/:tier`, and `/positions` are the market list, market detail (parameters, contracts, the Supply MUSD offer panel), and loan management.
+- `/faucet` links to the Mezo BTC faucet and the Mezo app for MUSD.
 
-- `/` is the lending dashboard: protocol stats, your position, Ethos tier, and the market table.
-- `/markets`, `/markets/:tier`, and `/positions` are the Mezo market list, market detail (parameters, contracts, supply panel), and loan management.
-- The DreamDEX client is null. Call sites go through a guard that throws "DreamDEX is not part of this deployment" if something still reaches them.
-- The faucet page links to the Mezo BTC faucet and to Borrow MUSD. It does not call the DreamDEX TestUSDC faucet.
-
-Vite inlines `VITE_*` while it builds. A Docker image must declare `ARG VITE_TARGET` and `ARG VITE_CREDIT_SERVICE_URL` before `npm run build`. Setting them only on the running container does nothing to an already-built bundle. `index.html`'s title still says Somnia; the chain is selected in the JavaScript bundle, not in that static file.
+Vite inlines `VITE_*` while it builds. A Docker image must declare `ARG VITE_CREDIT_SERVICE_URL` before `npm run build`; setting it only on the running container does nothing to an already-built bundle.
 
 Check the build with:
 
 ```bash
 cd frontend
-VITE_TARGET=mezo npx tsc -b --pretty false --noEmit
+npx tsc -b --pretty false --noEmit
 ```
 
 ## What this build does not do
 
-- It does not move DreamDEX. Event Contract discovery, order books, and redemption remain Somnia-only.
 - It does not change the tier numbers. Open, Established, and Reputable are still 38.5%, 62.5%, and 77% LLTV.
 - It does not use the matsnet-era MUSD address. That token is dead.
 - It does not commit signer keys, `.env`, Foundry broadcast files, or compiler cache. The manifest of addresses is the published artifact.

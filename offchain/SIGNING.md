@@ -60,7 +60,7 @@ The script prints:
 
 Open `offchain/sign_offer.js` and update `CONFIG`:
 
-- `chainId` — the target network's chain ID (50312 for Somnia testnet, 31611 for Mezo testnet). It must match the manifest the credit service loaded. The live service reads `chainId` from that file; do not sign a Mezo offer with the Somnia chain id.
+- `chainId` — 31611 for Mezo testnet. It must match the manifest the credit service loaded; the live service reads `chainId` from `deployments/mezo-testnet.json`.
 - `ecrecoverRatifier` — the deployed periphery notary address (needs to be deployed if not already)
 - `lenderPrivateKey` — passed via env, not hardcoded
 

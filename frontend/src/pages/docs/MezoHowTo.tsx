@@ -2,17 +2,14 @@ import { Link } from "react-router-dom";
 import { IconArrowRight, IconExternal } from "../../components/icons";
 import { CHAIN, EXPLORER, MEZO_APP_URL, MEZO_FAUCET_URL } from "../../config/chain";
 import { CREDIT, CREDIT_TOKENS } from "../../config/credit";
-import { ETHOS_SETTINGS_URL, ETHOS_TIERS } from "../../config/dreamdex";
+import { ETHOS_SETTINGS_URL, ETHOS_TIERS } from "../../config/ethos";
 import { DocPage, Note, Section, StepCard } from "./_primitives";
 
 const loan = CREDIT_TOKENS.loan.symbol;
 const collateral = CREDIT_TOKENS.collateral.symbol;
 const maturity = new Date(CREDIT.maturity * 1000).toISOString().slice(0, 10);
 
-/**
- * Operating guide for the Mezo credit app. The Somnia walkthrough stays in
- * HowTo.tsx and is not shown on this deployment.
- */
+/** Operating guide for the Covenant credit app on Mezo testnet. */
 export function MezoHowTo() {
   return (
     <DocPage
@@ -27,7 +24,7 @@ export function MezoHowTo() {
     >
       <Section
         title="What you are using"
-        subtitle="Three fixed-rate credit markets. There is no Event Contract book on this deployment."
+        subtitle="Three fixed-rate credit markets, one per Ethos tier."
       >
         <div className="grid md:grid-cols-3 gap-5">
           <StepCard

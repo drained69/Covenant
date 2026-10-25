@@ -92,7 +92,7 @@ export const hostOf = (url: string): string => {
  * Compact countdown for live surfaces ("0:41", "12:05", "3h 12m").
  *
  * `humanUntil` answers "roughly how long?" on rows and captions; the trade
- * panel needs the opposite — an exact clock the trader can watch tick. Near
+ * panel needs the opposite — an exact clock the user can watch tick. Near
  * expiry it shows seconds because that is when settlement timing matters.
  */
 export const countdown = (unixSec: number, nowMs: number = Date.now()): string => {

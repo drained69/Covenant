@@ -1,9 +1,8 @@
-# Covenant Somnia credit service — somnia-service.mjs (Node only).
+# Covenant credit service — credit-service.mjs (Node only).
 #
-# The image previously ran server.py (the retired compliance API),
-# so the production frontend's calls to /api/ethos-score and /api/offer 404'd.
-# The Somnia service is pure Node (ethers + the http module); no Python runtime
-# is needed anymore.
+# For a Railway service rooted at offchain/. The repo-root deployments/ file
+# the service defaults to (../deployments/mezo-testnet.json) is outside this
+# build context, so the manifest is mirrored here and pointed at via MANIFEST.
 FROM node:20-slim
 
 WORKDIR /app
@@ -12,13 +11,9 @@ WORKDIR /app
 COPY package.json package-lock.json ./
 RUN npm ci --omit=dev
 
-# Service source + the deployment manifest. The Railway service builds from
-# this directory as its root, so the repo-root deployments/ file the service
-# defaults to (../deployments/somnia-testnet.json) is OUT of the build context
-# — the manifest is mirrored here at build time and pointed at via MANIFEST.
-COPY somnia-service.mjs ./
-COPY somnia-testnet.json ./somnia-testnet.json
+COPY credit-service.mjs ./
+COPY mezo-testnet.json ./mezo-testnet.json
 
-ENV MANIFEST=./somnia-testnet.json
+ENV MANIFEST=./mezo-testnet.json
 
-CMD ["node", "somnia-service.mjs"]
+CMD ["node", "credit-service.mjs"]

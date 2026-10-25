@@ -4,7 +4,7 @@ import { formatUnits, parseUnits } from "viem";
 import { fmtAmount } from "../lib/format";
 import { CREDIT, CREDIT_DEPLOYED, CREDIT_SERVICE_URL, CREDIT_TOKENS, type TierKey } from "../config/credit";
 import { COVENANT_ABI, ERC20_ABI, ETHOS_GATE_ABI, ORACLE_ABI } from "../config/abis";
-import { CHAIN, QUOTE_TOKEN } from "../config/chain";
+import { CHAIN, LOAN_TOKEN } from "../config/chain";
 
 /* ── market struct ─────────────────────────────────────────────────────── */
 
@@ -43,7 +43,7 @@ export function useCovenantDebt(tier: TierKey) {
   });
 }
 
-/** The wallet's posted collateral (raw tBTC units) in a tier market. */
+/** The wallet's posted collateral (raw BTC units) in a tier market. */
 export function useCovenantCollateral(tier: TierKey) {
   const { address } = useAccount();
   const m = CREDIT.markets[tier];
@@ -136,7 +136,7 @@ export function useCovenantPosition(tier: TierKey) {
     loanSymbol: CREDIT_TOKENS.loan.symbol,
     collateralSymbol: CREDIT_TOKENS.collateral.symbol,
     isLoading: debt.isLoading || collateral.isLoading,
-    /** Wallet's tBTC balance (raw). */
+    /** Wallet's BTC balance (raw). */
     walletCollateral: useTokenBalance(CREDIT.collateralToken ?? undefined),
   };
 }
@@ -437,8 +437,8 @@ export function useMarketLiquidity() {
   };
 }
 
-/** The venue collateral symbol — tUSDC today, USDso on mainnet. */
-export const VENUE_SYMBOL = QUOTE_TOKEN.symbol;
+/** The loan token symbol (MUSD). */
+export const VENUE_SYMBOL = LOAN_TOKEN.symbol;
 
 const MARKET_STATE_ABI = [
   {

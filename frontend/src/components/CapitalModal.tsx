@@ -25,7 +25,6 @@ import {
 } from "../hooks/useCovenant";
 import { CREDIT, CREDIT_DEPLOYED, CREDIT_TOKENS, tierForScore, type TierKey } from "../config/credit";
 import { CHAIN, MEZO_FAUCET_URL } from "../config/chain";
-import { IS_MEZO } from "../config/target";
 import { COVENANT_ABI, ERC20_ABI, ETHOS_GATE_ABI } from "../config/abis";
 import { useTx } from "../hooks/useTx";
 import { describeError } from "../lib/errors";
@@ -34,10 +33,8 @@ import { HealthFactor } from "./lending";
 
 const MAX_UINT = 2n ** 256n - 1n;
 const ZERO = "0x0000000000000000000000000000000000000000" as const;
-const TITLE = IS_MEZO ? `Borrow ${CREDIT_TOKENS.loan.symbol}` : "Get trading capital";
-const SUBTITLE = IS_MEZO
-  ? `Fixed-rate ${CREDIT_TOKENS.loan.symbol} against ${CREDIT_TOKENS.collateral.symbol} collateral`
-  : "Reputation sets the terms · collateral stays the safety net";
+const TITLE = `Borrow ${CREDIT_TOKENS.loan.symbol}`;
+const SUBTITLE = `Fixed-rate ${CREDIT_TOKENS.loan.symbol} against ${CREDIT_TOKENS.collateral.symbol} collateral`;
 
 /**
  * The borrow flow. The amount comes first; the collateral it needs and the
@@ -116,7 +113,7 @@ function Flow({
   const debt = position.debt ?? 0n;
   const posted = position.collateral ?? 0n;
   const wallet = position.walletCollateral;
-  const spendable = wallet === undefined ? undefined : IS_MEZO ? (wallet > GAS_RESERVE ? wallet - GAS_RESERVE : 0n) : wallet;
+  const spendable = wallet === undefined ? undefined : (wallet > GAS_RESERVE ? wallet - GAS_RESERVE : 0n);
 
   const borrowRaw = parseLoanInput(borrowInput);
   const totalDebt = debt + borrowRaw;
@@ -305,7 +302,7 @@ function Flow({
           {exceedsCapacity && (
             <p className="mt-1.5 text-micro text-warn">
               More than your {collateralSymbol} can support at {lltvPct}% LTV.
-              {IS_MEZO && (
+              {(
                 <>
                   {" "}Get more from the{" "}
                   <a href={MEZO_FAUCET_URL} target="_blank" rel="noreferrer" className="link">faucet</a>.
@@ -383,7 +380,7 @@ function Flow({
                 ? `${displayCollateral(posted)} ${collateralSymbol} posted covers this loan`
                 : borrowRaw === 0n
                   ? `${displayCollateral(posted)} ${collateralSymbol} posted · enter an amount above`
-                  : `Minimum ${displayCollateral(neededCollateral)} · wallet ${spendable === undefined ? "—" : displayCollateral(spendable)} ${collateralSymbol}${IS_MEZO ? " after gas" : ""}`
+                  : `Minimum ${displayCollateral(neededCollateral)} · wallet ${spendable === undefined ? "—" : displayCollateral(spendable)} ${collateralSymbol}${" after gas"}`
             }
           >
             {!collateralReady && borrowRaw > 0n && (
@@ -412,7 +409,7 @@ function Flow({
             {depositShort && !collateralReady && (
               <p className="mt-1.5 text-micro text-warn">
                 Not enough {collateralSymbol} in this wallet.
-                {IS_MEZO && (
+                {(
                   <>
                     {" "}
                     <a href={MEZO_FAUCET_URL} target="_blank" rel="noreferrer" className="link inline-flex items-center gap-1">
@@ -659,9 +656,7 @@ function NotDeployedBody() {
     <div className="empty-state py-10">
       <div className="empty-state-title">Credit markets pending deployment</div>
       <p className="empty-state-body max-w-sm">
-        {IS_MEZO
-          ? "The Mezo credit markets are not in this build's configuration. Borrowing stays closed until the Covenant, notary, and market addresses are set."
-          : "The tier-gated credit engine deploys to Somnia testnet next — until then, trade with wallet collateral from the faucet. DreamDEX discovery and order execution are live."}
+        {"The Mezo credit markets are not in this build's configuration. Borrowing stays closed until the Covenant, notary, and market addresses are set."}
       </p>
     </div>
   );

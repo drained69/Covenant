@@ -17,14 +17,14 @@
 const { ethers } = require("ethers");
 const path = require("path");
 
-const deploymentPath = process.env.MANIFEST || path.join(__dirname, "..", "deployments", "somnia-testnet.json");
+const deploymentPath = process.env.MANIFEST || path.join(__dirname, "..", "deployments", "mezo-testnet.json");
 const deployment = require(deploymentPath);
 
 // ─────────────────────────────────────────────────────────────────────────────
 // CONFIG — target testnet deployment addresses
 // ─────────────────────────────────────────────────────────────────────────────
 const CONFIG = {
-  chainId: Number(process.env.CHAIN_ID || 50312),
+  chainId: Number(process.env.CHAIN_ID || 31611),
   ecrecoverNotary: process.env.ECRECOVER_NOTARY_ADDRESS || deployment.notary,
   lenderPrivateKey: process.env.PRIVATE_KEY,
 };

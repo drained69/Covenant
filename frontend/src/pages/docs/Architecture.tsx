@@ -2,7 +2,6 @@ import { Link } from "react-router-dom";
 import { DocPage, Section, LayerCard, Prose, Note } from "./_primitives";
 import { IconArrowRight } from "../../components/icons";
 import { CREDIT_TOKENS } from "../../config/credit";
-import { IS_MEZO } from "../../config/target";
 
 /*
   Architecture.
@@ -30,9 +29,7 @@ export function Architecture() {
             title="Frontend"
             path="frontend/"
             body={
-              IS_MEZO
-                ? `React + wagmi app. Shows the three credit markets, posts ${CREDIT_TOKENS.collateral.symbol}, fills a ${CREDIT_TOKENS.loan.symbol} offer, and tracks debt, collateral, and health. It does not discover Event Contracts.`
-                : "React + wagmi SPA. Discovers live DreamDEX Event Contracts through the official Somnia Markets SDK, reads Ethos credibility per wallet, submits Up/Down orders, and tracks the unified credit and position portfolio. There is no backend of our own."
+              `React + wagmi app. Shows the three credit markets, posts ${CREDIT_TOKENS.collateral.symbol}, fills a ${CREDIT_TOKENS.loan.symbol} offer, and tracks debt, collateral, and health.`
             }
           />
           <LayerCard
@@ -40,9 +37,7 @@ export function Architecture() {
             title="Off-chain services"
             path="offchain/"
             body={
-              IS_MEZO
-                ? `The credit service signs six-hour Ethos authorizations and par ${CREDIT_TOKENS.loan.symbol} offers, and keeps the book other wallets post. A keeper watches the price feed and unhealthy debt. The score signer holds no funds. A lend offer can pull ${CREDIT_TOKENS.loan.symbol} only after that lender has approved Covenant.`
-                : "sign_offer.js produces EIP-712 credit offers; the Ethos score service reads credibility, checks status and freshness, and issues short-lived wallet-bound score authorizations — bounded underwriting signals, never fund-moving authority."
+              `The credit service signs six-hour Ethos authorizations and par ${CREDIT_TOKENS.loan.symbol} offers, and keeps the book other wallets post. A keeper watches the price feed and unhealthy debt. The score signer holds no funds. A lend offer can pull ${CREDIT_TOKENS.loan.symbol} only after that lender has approved Covenant.`
             }
           />
           <LayerCard
@@ -54,7 +49,7 @@ export function Architecture() {
           <LayerCard
             index="04"
             title="Reputation surface"
-            path={IS_MEZO ? "src/reputation/" : "src/compliance/ · src/periphery/"}
+            path={"src/reputation/"}
             body="Gates answer 'may this account take new exposure?' through narrow policy hooks — canIncreaseDebt, canIncreaseCredit, canLiquidate. Score authorizations are wallet-, chain-, contract-, nonce-, and expiry-bound, and fail closed."
             emphasized
           />
@@ -188,19 +183,12 @@ export function Architecture() {
             signature through the offer's notary and only then touches positions.
           </p>
           <p>
-            {IS_MEZO ? (
+            {(
               <>
                 This deployment does run a credit service. It signs score authorizations and
                 stores the offer book. It does not custody the loan token: an unfilled offer
                 stays in the lender&apos;s wallet until <code className="code-inline">fillOffer</code>{" "}
                 pulls it. Cancel the offer before it is filled, or let the one-hour expiry pass.
-              </>
-            ) : (
-              <>
-                This is why the frontend has no backend to run and no orders to custody. It also means
-                an offer is cancellable for free — stop publishing it, or let the expiry pass — and
-                that two counterparties can trade a market this UI has never heard of, as long as both
-                sides can compute the same id.
               </>
             )}
           </p>

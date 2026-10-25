@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * Covenant Somnia service — the off-chain half of the credit layer.
+ * Covenant credit service — the off-chain half of the credit layer on Mezo.
  *
  * Two responsibilities, both about SIGNED AUTHORITY the on-chain layer verifies:
  *
@@ -14,17 +14,17 @@
  *   GET /api/offer?market=established&units=10000
  *       Signs a fresh lender offer (buy credit units at par) for the named tier
  *       market with LENDER_KEY, returning the Offer JSON + notaryData the
- *       frontend passes to Covenant.fillOffer. A trader "borrowing" is a trader
- *       filling this offer.
+ *       frontend passes to Covenant.fillOffer. A borrower "borrowing" is a
+ *       borrower filling this offer.
  *
- * The deployment manifest (deployments/somnia-testnet.json) carries every
+ * The deployment manifest (deployments/mezo-testnet.json) carries every
  * address and market parameter; nothing is hardcoded here. Run:
  *
- *   node offchain/somnia-service.mjs            # port 3001 (Vite proxies /api)
+ *   node offchain/credit-service.mjs            # port 3001 (Vite proxies /api)
  *
  * Env:
  *   SCORE_SIGNER_KEY   — key whose address the EthosTierGates were deployed with
- *   LENDER_KEY         — key that lends into tier markets (needs venue tUSDC)
+ *   LENDER_KEY         — key that lends into tier markets (needs MUSD approved to Covenant)
  *   MANIFEST           — path to the deployment manifest (default below)
  *   PORT               — default 3001
  */
@@ -37,7 +37,7 @@ import { ethers } from "ethers";
  * Manifest
  * ────────────────────────────────────────────────────────────────────────── */
 
-const MANIFEST_PATH = process.env.MANIFEST ?? "../deployments/somnia-testnet.json";
+const MANIFEST_PATH = process.env.MANIFEST ?? "../deployments/mezo-testnet.json";
 
 function loadManifest() {
   let raw;
@@ -45,7 +45,7 @@ function loadManifest() {
     raw = readFileSync(new URL(MANIFEST_PATH, import.meta.url), "utf8");
   } catch {
     console.error(`Manifest not found at ${MANIFEST_PATH}.`);
-    console.error("Deploy with script/DeploySomnia.s.sol and write deployments/somnia-testnet.json first.");
+    console.error("Deploy with script/DeployMezo.s.sol and write deployments/mezo-testnet.json first.");
     process.exit(1);
   }
   const m = JSON.parse(raw);
@@ -286,7 +286,7 @@ async function signLenderOffer(marketName, units) {
     buy: true,
     maker: lender.address,
     start: 0,
-    // One hour: the offer is filled the moment the trader clicks Borrow in
+    // One hour: the offer is filled the moment the borrower clicks Borrow in
     // the UI, but a long TTL keeps manual testing and demo flows from racing
     // the expiry like a short-lived quote would.
     expiry: now + 3600,
@@ -404,7 +404,6 @@ function offerMatchesMarket(offer, marketName) {
 function chainRpc() {
   if (process.env.COVENANT_RPC_URL) return process.env.COVENANT_RPC_URL;
   if (Number(MANIFEST.chainId) === 31611) return "https://rpc.test.mezo.org";
-  if (Number(MANIFEST.chainId) === 50312) return "https://api.infra.testnet.somnia.network";
   return null;
 }
 
@@ -671,7 +670,7 @@ function readBody(req) {
 }
 
 server.listen(PORT, () => {
-  console.log(`Covenant Somnia service on :${PORT}`);
+  console.log(`Covenant credit service on :${PORT}`);
   console.log(`  chain ${MANIFEST.chainId} · score signer ${scoreSigner.address} · lender ${lender.address}`);
   console.log(`  markets: ${Object.entries(MANIFEST.markets).map(([k, m]) => `${k}(≥${m.threshold})`).join(", ")}`);
 });

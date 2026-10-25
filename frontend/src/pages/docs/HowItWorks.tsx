@@ -1,9 +1,8 @@
 import { Link } from "react-router-dom";
 import { IconCheck, IconArrowRight, IconShield, IconLayers } from "../../components/icons";
-import { ETHOS_TIERS } from "../../config/dreamdex";
+import { ETHOS_TIERS } from "../../config/ethos";
 import { CREDIT_TOKENS } from "../../config/credit";
 import { CHAIN } from "../../config/chain";
-import { IS_MEZO } from "../../config/target";
 import { DocPage, Section, StepCard, LayerCard, Note, Prose } from "./_primitives";
 
 /**
@@ -26,18 +25,14 @@ export function HowItWorks() {
       eyebrow="Protocol overview"
       title="How Covenant works"
       lede={
-        IS_MEZO
-          ? `How a signed ${CREDIT_TOKENS.loan.symbol} offer becomes a ${CREDIT_TOKENS.collateral.symbol}-backed loan: the tier gate, the health check, repayment at par, and liquidation.`
-          : "The whole system in one page — the offer flow, the reputation gate, the credit tiers that price credibility into terms, and the DreamDEX execution that turns borrowed capital into an on-chain position."
+        `How a signed ${CREDIT_TOKENS.loan.symbol} offer becomes a ${CREDIT_TOKENS.collateral.symbol}-backed loan: the tier gate, the health check, repayment at par, and liquidation.`
       }
     >
       {/* ── The offer lifecycle ────────────────────────────────────────── */}
       <Section
         title="The offer lifecycle"
         subtitle={
-          IS_MEZO
-            ? `On this deployment the offer is at par. You receive ${CREDIT_TOKENS.loan.symbol} and later repay the same amount. The protocol can price a discount; the book here does not accept one.`
-            : "Three steps from a signed message to a settled position. Credit units are sold at a discount and redeemed 1:1 at maturity — the discount is the interest."
+          `On this deployment the offer is at par. You receive ${CREDIT_TOKENS.loan.symbol} and later repay the same amount. The protocol can price a discount; the book here does not accept one.`
         }
       >
         {/* The StepIndicator marked step 1 `active: true` and steps 2-3 inactive,
@@ -86,47 +81,35 @@ export function HowItWorks() {
       <Section
         title="The lending model"
         subtitle={
-          IS_MEZO
-            ? `A loan is a signed par offer. You receive ${CREDIT_TOKENS.loan.symbol} now and repay the same amount. The rate does not move with utilization.`
-            : "Covenant is a fixed-rate, fixed-maturity credit market. A loan is created from a signed price, not from a utilization curve."
+          `A loan is a signed par offer. You receive ${CREDIT_TOKENS.loan.symbol} now and repay the same amount. The rate does not move with utilization.`
         }
       >
         <div className="grid md:grid-cols-3 gap-5">
           <div className="card p-6 space-y-3">
             <div className="stat-label">Lender</div>
-            <div className="card-title">{IS_MEZO ? "Posts an offer" : "Buys credit units"}</div>
+            <div className="card-title">{"Posts an offer"}</div>
             <p className="text-body-sm text-slate-300 leading-relaxed">
-              {IS_MEZO
-                ? `The lender signs a one-hour par offer. ${CREDIT_TOKENS.loan.symbol} stays in that wallet until a borrower fills it. One credit unit is then a claim on one ${CREDIT_TOKENS.loan.symbol}, less any realized market loss.`
-                : "The lender supplies the loan token and receives a zero-coupon claim. One credit unit is redeemable for one loan token at face value, adjusted for protocol fees and any realized market loss."}
+              {`The lender signs a one-hour par offer. ${CREDIT_TOKENS.loan.symbol} stays in that wallet until a borrower fills it. One credit unit is then a claim on one ${CREDIT_TOKENS.loan.symbol}, less any realized market loss.`}
             </p>
           </div>
           <div className="card p-6 space-y-3 border-brand-500/30">
             <div className="stat-label">Execution price</div>
-            <div className="card-title">{IS_MEZO ? "Par on this deployment" : "The discount is the interest"}</div>
+            <div className="card-title">{"Par on this deployment"}</div>
             <p className="text-body-sm text-slate-300 leading-relaxed">
-              {IS_MEZO ? (
+              {(
                 <>
                   The book only accepts tick <code className="code-inline">5820</code>. One{" "}
                   {CREDIT_TOKENS.loan.symbol} out, one {CREDIT_TOKENS.loan.symbol} back. The engine
                   can price a discount. This book rejects it.
-                </>
-              ) : (
-                <>
-                  At a price of <code className="code-inline">0.95</code>, the borrower receives
-                  0.95 loan tokens and owes 1.00 at repayment. That difference fixes the financing
-                  cost for the remaining term.
                 </>
               )}
             </p>
           </div>
           <div className="card p-6 space-y-3">
             <div className="stat-label">Borrower</div>
-            <div className="card-title">{IS_MEZO ? "Owes the amount received" : "Sells credit units"}</div>
+            <div className="card-title">{"Owes the amount received"}</div>
             <p className="text-body-sm text-slate-300 leading-relaxed">
-              {IS_MEZO
-                ? `The borrower receives ${CREDIT_TOKENS.loan.symbol} immediately. Debt increases by that same amount. Repayment is one ${CREDIT_TOKENS.loan.symbol} per unit of debt.`
-                : "The borrower receives the loan token immediately and records matching debt units. Each debt unit is repaid with one unit of the loan token."}
+              {`The borrower receives ${CREDIT_TOKENS.loan.symbol} immediately. Debt increases by that same amount. Repayment is one ${CREDIT_TOKENS.loan.symbol} per unit of debt.`}
             </p>
           </div>
         </div>
@@ -232,7 +215,7 @@ healthy := debt <= maxDebt`}
         title="Fees, repayment, and maturity"
         subtitle="The execution price determines interest; protocol fees are separate and bounded, and exits remain available without a fresh score authorization."
       >
-        {IS_MEZO && (
+        {(
           <Note title="What you are charged on this deployment">
             <p>
               Posted offers are par. Settlement-fee and continuous-fee slots exist on the engine
@@ -332,8 +315,8 @@ healthy := debt <= maxDebt`}
               <>
                 Reviews, vouches, and attestations on Ethos shape the wallet's credibility
                 score over time. Covenant only reads it — see{" "}
-                <Link to={IS_MEZO ? "/" : "/credit"} className="link">
-                  {IS_MEZO ? "Borrow" : "your live score"}
+                <Link to={"/"} className="link">
+                  {"Borrow"}
                 </Link>
                 .
               </>
@@ -344,11 +327,9 @@ healthy := debt <= maxDebt`}
             n={2}
             title="Score is authorized"
             body={
-              IS_MEZO
-                ? "The credit service signs the score for this wallet and this chain. You submit it to that market's gate. It lasts six hours. The browser keeps the last one. The first signature still needs the service."
-                : "A short-lived, wallet-bound authorization commits the observed score, its tier, a nonce, and an expiry. The on-chain registry verifies the signature and rejects stale or replayed data."
+              "The credit service signs the score for this wallet and this chain. You submit it to that market's gate. It lasts six hours. The browser keeps the last one. The first signature still needs the service."
             }
-            hint="offchain/somnia-service.mjs"
+            hint="offchain/credit-service.mjs"
             emphasized
           />
           <StepCard
@@ -449,9 +430,7 @@ healthy := debt <= maxDebt`}
           <div className="card p-6 space-y-3">
             <div className="card-title">Better terms, earned</div>
             <p className="text-body-sm text-slate-300 leading-relaxed">
-              {IS_MEZO
-                ? `Higher max LTV means more ${CREDIT_TOKENS.loan.symbol} against the same posted ${CREDIT_TOKENS.collateral.symbol}. Reputable at 77% lends twice what Open at 38.5% does. The dollar value moves with the BTC/USD feed.`
-                : "Higher LTV means more borrowing power for the same collateral. One tBTC supports about $41.6k of debt at the Open tier and $83.2k at Reputable — 2× the capital efficiency, earned by the credibility score rather than by posting more assets."}
+              {`Higher max LTV means more ${CREDIT_TOKENS.loan.symbol} against the same posted ${CREDIT_TOKENS.collateral.symbol}. Reputable at 77% lends twice what Open at 38.5% does. The dollar value moves with the BTC/USD feed.`}
             </p>
             <div className="pt-3 border-t border-line text-micro font-mono text-subtle">
               src/periphery/CreditLadderLens.sol
@@ -461,15 +440,13 @@ healthy := debt <= maxDebt`}
 
         <div className="card p-6 flex flex-col sm:flex-row sm:items-center justify-between gap-5">
           <p className="text-body-sm text-muted max-w-xl">
-            {IS_MEZO
-              ? "Borrow shows the market your score opens. "
-              : "The credit page reads your live Ethos score and shows what each tier would earn. "}
+            {"Borrow shows the market your score opens. "}
             The{" "}
             <Link to="/docs/credit-ladder" className="link">Credit tiers</Link> doc covers the
             thresholds and what is enforced on-chain today.
           </p>
-          <Link to={IS_MEZO ? "/" : "/credit"} className="btn-secondary flex-shrink-0">
-            {IS_MEZO ? "See your tier" : "Check your tier"}
+          <Link to={"/"} className="btn-secondary flex-shrink-0">
+            {"See your tier"}
             <IconArrowRight className="w-4 h-4" />
           </Link>
         </div>
@@ -486,9 +463,7 @@ healthy := debt <= maxDebt`}
             title="Frontend"
             path="frontend/"
             body={
-              IS_MEZO
-                ? "React + wagmi app. Shows the three credit markets, posts BTC, fills a MUSD offer, and tracks debt, collateral, and health. It does not discover Event Contracts."
-                : "React + wagmi SPA. Discovers DreamDEX Event Contracts through the official Somnia Markets SDK, reads Ethos credibility per wallet, submits Up/Down orders, and tracks the unified portfolio."
+              "React + wagmi app. Shows the three credit markets, posts BTC, fills a MUSD offer, and tracks debt, collateral, and health."
             }
           />
           <LayerCard
@@ -496,9 +471,7 @@ healthy := debt <= maxDebt`}
             title="Off-chain services"
             path="offchain/"
             body={
-              IS_MEZO
-                ? "The credit service signs six-hour Ethos authorizations and par lend offers, and keeps a book of offers other wallets post. A keeper watches the oracle and unhealthy debt. Neither signer can move funds except by an offer the lender already signed."
-                : "somnia-service.mjs reads Ethos, signs short-lived score authorizations for the deployed tier gates, and returns fresh EIP-712 lender offers. Its signers cannot override collateral health or move borrower funds."
+              "The credit service signs six-hour Ethos authorizations and par lend offers, and keeps a book of offers other wallets post. A keeper watches the oracle and unhealthy debt. Neither signer can move funds except by an offer the lender already signed."
             }
           />
           <LayerCard
@@ -519,11 +492,9 @@ healthy := debt <= maxDebt`}
 
       {/* ── Trading execution ───────────────────────────────────────────── */}
       <Section
-        title={IS_MEZO ? "What this deployment does" : "From qualification to order"}
+        title={"What this deployment does"}
         subtitle={
-          IS_MEZO
-            ? `Borrowed ${CREDIT_TOKENS.loan.symbol} is paid to your wallet. Outcome tokens are not collateral, and there is no Event Contract book on ${CHAIN.name}.`
-            : "Borrowed capital is spent, not rehypothecated: the integration issues DreamDEX TestUSDC as trading collateral rather than accepting outcome positions as loan collateral."
+          `Borrowed ${CREDIT_TOKENS.loan.symbol} is paid to your wallet.`
         }
       >
         {/*
@@ -541,9 +512,7 @@ healthy := debt <= maxDebt`}
               </span>
             </div>
             <p className="text-body-sm text-slate-300 leading-relaxed">
-              {IS_MEZO
-                ? `Post ${CREDIT_TOKENS.collateral.symbol}, borrow ${CREDIT_TOKENS.loan.symbol} at par, repay the same amount, and withdraw collateral that is no longer required. Other wallets can supply ${CREDIT_TOKENS.loan.symbol} with a one-hour offer.`
-                : "Borrowed collateral funds Up/Down orders on DreamDEX's on-chain limit order book. Positions settle as ERC-6909 outcome tokens; resolution, void, and redemption states surface in the portfolio."}
+              {`Post ${CREDIT_TOKENS.collateral.symbol}, borrow ${CREDIT_TOKENS.loan.symbol} at par, repay the same amount, and withdraw collateral that is no longer required. Other wallets can supply ${CREDIT_TOKENS.loan.symbol} with a one-hour offer.`}
             </p>
           </div>
 
@@ -553,9 +522,7 @@ healthy := debt <= maxDebt`}
               <span className="badge-neutral">Planned</span>
             </div>
             <p className="text-body-sm text-slate-300 leading-relaxed">
-              {IS_MEZO
-                ? "Mezo mainnet, a variable borrow rate, and pooled lending are not this deployment. The offer expires; it is not a deposit you earn yield on."
-                : "Direct ERC-6909 outcome-position collateral — token-ID-aware custody, pre-settlement valuation, liquidation liquidity, and void-market accounting. Intentionally outside the initial scope."}
+              {"Mezo mainnet, a variable borrow rate, and pooled lending are not this deployment. The offer expires; it is not a deposit you earn yield on."}
             </p>
           </div>
         </div>
@@ -568,7 +535,7 @@ healthy := debt <= maxDebt`}
           <div className="card-header">
             <div className="card-title">Where each control applies</div>
             <span className="text-micro font-semibold uppercase text-muted">
-              {IS_MEZO ? "Credit markets" : "Trading surface"}
+              {"Credit markets"}
             </span>
           </div>
           <table className="w-full text-body-sm">
@@ -608,11 +575,9 @@ healthy := debt <= maxDebt`}
           the markets. */}
       <div className="card p-6 lg:p-8 flex flex-col sm:flex-row sm:items-center justify-between gap-5">
         <div>
-          <div className="text-h3 text-slate-50">{IS_MEZO ? "Open a market" : "See it settle"}</div>
+          <div className="text-h3 text-slate-50">{"Open a market"}</div>
           <p className="mt-1.5 text-body-sm text-muted max-w-md">
-            {IS_MEZO
-              ? `Three ${CREDIT_TOKENS.loan.symbol} markets on ${CHAIN.name}. Borrowing, supplying, and repayment run through the path above.`
-              : "Live DreamDEX Event Contracts on Somnia Testnet. Orders run through the exact path described above."}
+            {`Three ${CREDIT_TOKENS.loan.symbol} markets on ${CHAIN.name}. Borrowing, supplying, and repayment run through the path above.`}
           </p>
         </div>
         <Link to="/markets" className="btn-primary flex-shrink-0">
@@ -629,5 +594,5 @@ const COVERAGE = [
   { path: "Increase lender credit", by: "entry gate · canIncreaseCredit" },
   { path: "Repay, redeem, withdraw collateral", by: "no gate — exits always open" },
   { path: "Rebind a market's gate after creation", by: "market id = keccak" },
-  { path: IS_MEZO ? "Borrow size" : "Order size on DreamDEX", by: IS_MEZO ? "posted collateral · oracle · LLTV" : "wallet collateral balance" },
+  { path: "Borrow size", by: "posted collateral · oracle · LLTV" },
 ];

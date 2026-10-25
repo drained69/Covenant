@@ -16,7 +16,7 @@ import {LLTV_3, LIQUIDATION_CURSOR_LOW, maxLif} from "../src/libraries/Constants
 ///
 /// Required Environment Variables:
 ///   COVENANT_CORE_ADDRESS      — Address of the deployed Covenant core contract
-///   TEST_USDC_ADDRESS          — Address of the loan token (e.g. TestUSDC)
+///   TEST_USDC_ADDRESS          — Address of the loan token (e.g. MUSD)
 ///   TEST_WBTC_ADDRESS          — Address of the collateral token (e.g. TestWBTC)
 ///   COVENANT_ORACLE_ADDRESS    — Address of the price oracle for collateral/loan pair
 ///   COVENANT_GATE_ADDRESS      — Address of the CleanversePoolGate or CovenantGate

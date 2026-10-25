@@ -2,35 +2,32 @@ import { useEffect, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import { useAccount, useBalance } from "wagmi";
 import { formatUnits } from "viem";
-import { CHAIN, EXPLORER, NATIVE_TOKEN, QUOTE_TOKEN } from "../config/chain";
-import { IS_MEZO } from "../config/target";
-import { useDreamDexQuoteBalance } from "../hooks/useDreamDex";
+import { CHAIN, EXPLORER, NATIVE_TOKEN, LOAN_TOKEN } from "../config/chain";
+import { useLoanTokenBalance } from "../hooks/useLoanTokenBalance";
 import { useEthosCredit } from "../hooks/useEthosScore";
 import { shortAddr } from "../lib/format";
 import { TokenMark, IconChevronRight, IconExternal, EthosMark } from "./icons";
 
 /**
- * The connected wallet's spendable balances on Somnia, in one control.
+ * The connected wallet's Mezo balances, in one control.
  *
- * Two assets matter to the trading flow: the DreamDEX venue collateral
- * (TestUSDC — what orders escrow) and STT (gas). Both are read live; the
- * collapsed trigger shows the collateral figure because that is the number
- * that gates every order size.
+ * Two assets matter to the credit flow: MUSD (the loan token) and BTC (gas
+ * and collateral). Both are read live.
  */
 export function WalletBalancesMenu() {
   const { address, isConnected } = useAccount();
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
 
-  /* Both reads are pinned to Somnia (chainId) and polled. Unpinned reads
+  /* Both reads are pinned to Mezo (chainId) and polled. Unpinned reads
      execute on whatever chain the wallet is currently connected to — on any
      other network the ERC-20 read errors out and the native read shows the
-     wrong chain's token. Unpolled reads went stale the moment a drip, trade,
-     or borrow changed the balance — this control updated only on tab
-     refocus. The quote balance reuses the shared hook the trade panel uses,
-     so both surfaces always agree. */
-  const quote = useDreamDexQuoteBalance();
-  const stt = useBalance({
+     wrong chain's token. Unpolled reads went stale the moment a drip, borrow,
+     or repay changed the balance — this control updated only on tab
+     refocus. The MUSD balance reuses the shared hook the header uses, so
+     both surfaces always agree. */
+  const quote = useLoanTokenBalance();
+  const native = useBalance({
     address,
     chainId: CHAIN.id,
     query: { enabled: !!address, refetchInterval: 10_000 },
@@ -55,21 +52,21 @@ export function WalletBalancesMenu() {
 
   const rows: BalanceRowProps[] = [
     {
-      symbol: QUOTE_TOKEN.symbol,
-      name: QUOTE_TOKEN.name,
-      role: QUOTE_TOKEN.role,
+      symbol: LOAN_TOKEN.symbol,
+      name: LOAN_TOKEN.name,
+      role: LOAN_TOKEN.role,
       tone: "ok",
       formatted: quote.raw !== undefined ? trim(formatUnits(quote.raw, quote.decimals)) : "—",
       loading: quote.isLoading,
-      explorerPath: `${EXPLORER}/address/${QUOTE_TOKEN.address}`,
+      explorerPath: `${EXPLORER}/address/${LOAN_TOKEN.address}`,
     },
     {
       symbol: NATIVE_TOKEN.symbol,
       name: NATIVE_TOKEN.name,
       role: NATIVE_TOKEN.role,
       tone: "warn",
-      formatted: stt.data ? trim(stt.data.formatted) : "—",
-      loading: stt.isLoading,
+      formatted: native.data ? trim(native.data.formatted) : "—",
+      loading: native.isLoading,
     },
   ];
 
@@ -122,9 +119,8 @@ export function WalletBalancesMenu() {
               <BalanceRow key={row.symbol} {...row} />
             ))}
 
-            {/* Ethos credibility — the third number a Covenant trader thinks
-                about, after collateral and gas. Lives here (rather than only
-                on the Credit page) so the sm–xl band, where the header chip
+            {/* Ethos credibility — the third number a Covenant borrower
+                thinks about, after collateral and gas. Lives here so the sm–xl band, where the header chip
                 doesn't fit, still reads it one click away. Links to the full
                 qualification view. */}
             <div className="my-1 border-t border-line" />
@@ -154,9 +150,7 @@ export function WalletBalancesMenu() {
           </div>
 
            <div className="px-4 py-3 border-t border-line bg-ink-900 text-micro text-subtle">
-            {IS_MEZO
-              ? "MUSD in this wallet is not collateral. Post BTC on a market before it backs a loan."
-              : "Held in your wallet — DreamDEX orders escrow collateral at fill time."}
+            {"MUSD in this wallet is not collateral. Post BTC on a market before it backs a loan."}
           </div>
         </div>
       )}

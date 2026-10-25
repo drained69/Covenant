@@ -1,13 +1,12 @@
 import { Link } from "react-router-dom";
 import { DocPage, Section, Prose, Note } from "./_primitives";
 import { IconArrowRight } from "../../components/icons";
-import { ETHOS_TIERS } from "../../config/dreamdex";
-import { IS_MEZO } from "../../config/target";
+import { ETHOS_TIERS } from "../../config/ethos";
 
 /**
  * Credit tiers (docs).
  *
- * Every threshold on this page comes from `ETHOS_TIERS` in config/dreamdex.ts
+ * Every threshold on this page comes from `ETHOS_TIERS` in config/ethos.ts
  * — the same constant the /credit page and the trade panel read — so the docs,
  * the qualification page, and the order preview can never disagree about what
  * a score is worth.
@@ -25,9 +24,9 @@ export function CreditLadder() {
       >
         <div className="card overflow-hidden">
           <div className="card-header">
-            <div className="card-title">{IS_MEZO ? "Mezo testnet markets" : "Testnet tier policy"}</div>
+            <div className="card-title">{"Mezo testnet markets"}</div>
             <span className="text-micro font-semibold uppercase text-muted">
-              {IS_MEZO ? "Live" : "Illustrative"}
+              {"Live"}
             </span>
           </div>
           <table className="w-full text-body-sm">
@@ -104,10 +103,8 @@ export function CreditLadder() {
               <li>Repaying debt</li>
               <li>Redeeming lender credit</li>
               <li>Supplying collateral, or withdrawing the amount the loan no longer needs</li>
-              {IS_MEZO ? (
+              {(
                 <li>Withdrawing an unfilled lend offer</li>
-              ) : (
-                <li>Trading exits on DreamDEX</li>
               )}
             </ul>
             <p className="text-body-sm text-subtle leading-relaxed">
@@ -120,7 +117,7 @@ export function CreditLadder() {
 
       <Section title="Where this is enforced" subtitle="Honest status of the on-chain layer.">
         <Prose>
-          {IS_MEZO ? (
+          {(
             <p>
               Each market's gate is part of its id, so the score bar cannot be swapped without
               creating a different market. <code className="code-inline">canIncreaseDebt</code> is
@@ -129,21 +126,10 @@ export function CreditLadder() {
               one still has to be signed by the credit service. Liquidation does not consult the
               score: anyone can liquidate a position whose debt is above its collateral value.
             </p>
-          ) : (
-            <p>
-              The engine's policy hooks — <code className="code-inline">canIncreaseDebt</code>,{" "}
-              <code className="code-inline">canIncreaseCredit</code>,{" "}
-              <code className="code-inline">canLiquidate</code> — are live in the core contract and
-              every market binds its gate address into its content-addressed id. The Ethos score
-              registry and threshold gates (short-lived signed authorizations with nonce, expiry,
-              wallet, chain, and policy-version binding) are the active build milestone; until
-              they deploy to Somnia, the tiers shown in this app are a preview policy and every
-              DreamDEX order settles against your real wallet collateral.
-            </p>
           )}
         </Prose>
-        <Link to={IS_MEZO ? "/" : "/credit"} className="link text-body-sm inline-flex items-center gap-2">
-          {IS_MEZO ? "See your live tier on Borrow" : "Check your live tier on the credit page"}
+        <Link to={"/"} className="link text-body-sm inline-flex items-center gap-2">
+          {"See your live tier on Borrow"}
           <IconArrowRight className="w-3.5 h-3.5" />
         </Link>
       </Section>

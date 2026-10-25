@@ -1,6 +1,6 @@
 import { useQuery } from "@tanstack/react-query";
 import { useAccount } from "wagmi";
-import { ETHOS_API_URL, ETHOS_CLIENT, ethosTier } from "../config/dreamdex";
+import { ETHOS_API_URL, ETHOS_CLIENT, ethosTier } from "../config/ethos";
 
 export type EthosScore = { score: number; level: string };
 

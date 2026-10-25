@@ -3,7 +3,7 @@ import { Link } from "react-router-dom";
 import { useAccount } from "wagmi";
 import { useConnectModal } from "@rainbow-me/rainbowkit";
 import { CREDIT_TOKENS, tierForScore, type TierKey } from "../config/credit";
-import { ETHOS_TIERS, ethosProfileUrl } from "../config/dreamdex";
+import { ETHOS_TIERS, ethosProfileUrl } from "../config/ethos";
 import { MEZO_APP_URL, MEZO_FAUCET_URL } from "../config/chain";
 import {
   collateralValue,
@@ -30,7 +30,7 @@ import {
   tierMeta,
 } from "../components/lending";
 import { EthosMark, IconArrowRight, IconExternal } from "../components/icons";
-import { EthosBindingCard } from "./Credit";
+import { EthosBindingCard } from "../components/EthosBindingCard";
 
 const usd = (n: number | undefined) =>
   n === undefined ? "—" : `$${n.toLocaleString("en-US", { maximumFractionDigits: 0 })}`;

@@ -1,5 +1,4 @@
 import { DocPage, Note, Section, Prose } from "./_primitives";
-import { IS_MEZO } from "../../config/target";
 
 /*
   Core math.
@@ -110,7 +109,7 @@ SCALE = ORACLE_PRICE_SCALE * 10^loanDecimals
           </p>
         </Prose>
 
-        {IS_MEZO && (
+        {(
           <Note title="This deployment's price feed">
             <p>
               Mezo&apos;s BTC/USD feed is a Skip precompile. Calling{" "}

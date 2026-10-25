@@ -628,7 +628,7 @@ def _cli() -> int:
     sub.add_parser("probe", help="Health-check the gateway + verify api-id authentication")
 
     p_apass = sub.add_parser("generate-apass", help="Issue an A-Pass credential to a wallet")
-    p_apass.add_argument("--chain", required=True, help="target chain (e.g. somnia)")
+    p_apass.add_argument("--chain", required=True, help="target chain (e.g. ethereum)")
     p_apass.add_argument("--wallet", required=True, help="0x-prefixed wallet address")
     p_apass.add_argument("--country", default="", help="ISO-3166-1 alpha-2 country code (e.g. US, NG)")
     p_apass.add_argument("--name", default="", help="full name for identity data (default: Covenant User)")

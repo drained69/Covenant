@@ -1,4 +1,3 @@
-import { IS_MEZO } from "../../config/target";
 
 /*
   The docs navigation, in one place.
@@ -31,8 +30,7 @@ export type DocsNavItem = {
 */
 export const REPO_URL = "https://github.com/drained69/covenant";
 
-export const DOCS_NAV: DocsNavItem[] = IS_MEZO
-  ? [
+export const DOCS_NAV: DocsNavItem[] = [
       {
         to: "/docs/how-to",
         label: "How to use Covenant",
@@ -68,43 +66,5 @@ export const DOCS_NAV: DocsNavItem[] = IS_MEZO
         label: "Reference",
         blurb:
           "Mezo testnet, MUSD, BTC, the three markets, and the contract addresses this app calls.",
-      },
-    ]
-  : [
-      {
-        to: "/docs/how-to",
-        label: "How to use Covenant",
-        blurb:
-          "A practical walkthrough: fund a wallet, check your tier, unlock capital, place an Event Contract order, manage the position, and exit safely.",
-      },
-      {
-        to: "/docs/how-it-works",
-        label: "How it works",
-        blurb:
-          "The lending lifecycle end to end — credit pricing, borrowing, collateral health, fees, repayment, liquidation, and settlement.",
-      },
-      {
-        to: "/docs/architecture",
-        label: "Architecture",
-        blurb:
-          "The four layers, how a market's identity is derived from its terms, and why swapping a gate produces a different market.",
-      },
-      {
-        to: "/docs/credit-ladder",
-        label: "Credit tiers",
-        blurb:
-          "Three reputation tiers binding an Ethos score threshold to transparent collateralized trading terms.",
-      },
-      {
-        to: "/docs/math",
-        label: "Core math",
-        blurb:
-          "Oracle scaling, the health check, settlement and continuous fees, liquidation, and what the contracts do not enforce.",
-      },
-      {
-        to: "/docs/reference",
-        label: "Reference",
-        blurb:
-          "Deployed addresses, chain metadata, token decimals, and links into the repository's own documentation.",
       },
     ];
