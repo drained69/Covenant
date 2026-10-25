@@ -10,6 +10,9 @@ import { SomniaMarketsProvider } from "@somnia-chain/markets-sdk/react";
 import { App } from "./App";
 import { wagmiConfig } from "./config/wagmi";
 import { dreamdexClient } from "./config/dreamdex";
+import { IS_MEZO } from "./config/target";
+
+if (!IS_MEZO) document.title = "Covenant — Reputation-aware trading capital";
 
 import "@rainbow-me/rainbowkit/styles.css";
 import "./index.css";

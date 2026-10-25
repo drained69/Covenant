@@ -11,6 +11,7 @@ import {
   displayLoan,
   healthFactor,
   liquidationPrice,
+  oraclePrice,
   useCreditPortfolio,
   useGateAuthorization,
   useProtocolStats,
@@ -46,12 +47,17 @@ export function MezoDashboard() {
     <section className="shell py-10 lg:py-12 space-y-8">
       <header className="flex flex-wrap items-end justify-between gap-6">
         <div className="max-w-2xl">
-          <div className="section-label text-brand-500">Mezo testnet · fixed-rate credit</div>
-          <h1 className="mt-2 text-h1 text-slate-50">Borrow {loan} against your Bitcoin.</h1>
+          <div className="inline-flex items-center gap-2 rounded-full border border-line-strong bg-surface-raised px-3 py-1 text-micro font-semibold uppercase text-slate-300">
+            <span className="status-dot-ok" /> Live on Mezo testnet · {loan} credit
+          </div>
+          <h1 className="mt-4 text-h1 text-slate-50">
+            Your reputation, priced into
+            <br className="hidden sm:block" /> your Bitcoin loan.
+          </h1>
           <p className="mt-3 text-body-lg text-muted leading-relaxed">
-            Post BTC, borrow {loan} at a fixed rate until {MATURITY_LABEL}. Your Ethos credibility
-            score decides the loan-to-value you qualify for. Collateral always backs the loan, and
-            repaying never needs a score.
+            Covenant lends {loan} against BTC at a fixed rate. Your Ethos credibility score sets the
+            loan-to-value, up to twice the borrowing power on the same collateral. BTC always secures
+            the loan, and repaying never needs a score.
           </p>
         </div>
         <div className="flex flex-wrap gap-2">
@@ -125,6 +131,10 @@ export function MezoDashboard() {
           </div>
         </div>
       </div>
+
+      <BorrowingPower yourTier={yourTier} priceRaw={stats.priceRaw} />
+
+      <HowItWorks />
 
       <div className="space-y-3">
         <div className="flex items-end justify-between gap-4">
@@ -301,6 +311,114 @@ function Metric({ label, value, sub }: { label: string; value: string | undefine
         {value === undefined ? <Skel /> : value}
       </div>
       <div className="mt-1 text-micro text-subtle truncate">{sub}</div>
+    </div>
+  );
+}
+
+/** The product in one picture: the same BTC borrows more as Ethos credibility rises. */
+function BorrowingPower({ yourTier, priceRaw }: { yourTier: TierKey | undefined; priceRaw: bigint | undefined }) {
+  const { isConnected } = useAccount();
+  const portfolio = useCreditPortfolio();
+  const wallet = portfolio.rows.open.walletCollateral;
+  const [input, setInput] = useState("");
+  const loan = CREDIT_TOKENS.loan.symbol;
+  const coll = CREDIT_TOKENS.collateral.symbol;
+  const fallback = isConnected && wallet !== undefined && wallet > 0n ? Number(displayCollateral(wallet, 4).replace(/,/g, "")) : 0.1;
+  const btc = input === "" ? fallback : Math.max(0, Number(input) || 0);
+  const price = oraclePrice(priceRaw);
+  const value = price === undefined ? undefined : btc * price;
+  const max = value === undefined ? 0 : value * (ETHOS_TIERS[ETHOS_TIERS.length - 1].ltv / 100);
+
+  return (
+    <div className="card">
+      <div className="p-6 grid lg:grid-cols-[320px_minmax(0,1fr)] gap-8">
+        <div>
+          <div className="section-label text-ethos-600">Reputation-priced credit</div>
+          <h2 className="mt-2 text-h3 text-slate-50">Same Bitcoin. More {loan} as your credibility grows.</h2>
+          <p className="mt-2 text-body-sm text-subtle leading-relaxed">
+            Ethos credibility moves a wallet into a higher tier, and each tier lends at a higher
+            loan-to-value. The collateral rules and liquidation math stay the same.
+          </p>
+          <label className="mt-5 block">
+            <span className="field-label">Collateral</span>
+            <div className="rounded-lg border border-line-strong bg-surface-raised px-3 py-2 flex items-center gap-2 focus-within:shadow-focus-ring">
+              <input
+                className="flex-1 min-w-0 bg-transparent outline-none focus-visible:outline-none font-mono text-body-lg tabular-nums text-slate-50"
+                value={input === "" ? String(fallback) : input}
+                onChange={(e) => setInput(e.target.value)}
+                inputMode="decimal"
+                aria-label={`${coll} collateral`}
+              />
+              <span className="text-body-sm font-medium text-slate-300">{coll}</span>
+            </div>
+            <span className="mt-1 block text-micro text-subtle">
+              {value === undefined ? "Loading oracle price…" : `≈ $${value.toLocaleString("en-US", { maximumFractionDigits: 0 })} at the on-chain BTC price`}
+            </span>
+          </label>
+        </div>
+
+        <div className="space-y-4 self-center">
+          {ETHOS_TIERS.map((t) => {
+            const key = t.name.toLowerCase() as TierKey;
+            const amount = value === undefined ? undefined : value * (t.ltv / 100);
+            const yours = yourTier === key;
+            return (
+              <div key={t.name}>
+                <div className="flex items-baseline justify-between gap-3 text-body-sm">
+                  <span className="flex items-center gap-2">
+                    <span className={`font-semibold ${yours ? "text-brand-600" : "text-slate-200"}`}>{t.name}</span>
+                    <span className="text-micro text-subtle">{t.minimum === 0 ? "any score" : `Ethos ${t.minimum.toLocaleString()}+`} · {t.ltv}% LTV</span>
+                    {yours && <span className="badge-info">You</span>}
+                  </span>
+                  <span className="font-mono tabular-nums text-slate-50 font-semibold">
+                    {amount === undefined ? "…" : `${amount.toLocaleString("en-US", { maximumFractionDigits: 0 })} ${loan}`}
+                  </span>
+                </div>
+                <div className="mt-1.5 h-2.5 rounded-full bg-ink-800 overflow-hidden">
+                  <div
+                    className={`h-full rounded-full transition-[width] duration-500 ${yours ? "bg-brand-500" : "bg-ethos-400/70"}`}
+                    style={{ width: `${max > 0 && amount !== undefined ? (amount / max) * 100 : 0}%` }}
+                  />
+                </div>
+              </div>
+            );
+          })}
+          <p className="text-micro text-subtle">
+            Maximum borrow at each tier's LLTV. The borrow form suggests less, keeping a 1.5 health factor.
+          </p>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function HowItWorks() {
+  const items = [
+    {
+      n: "01",
+      t: "Reputation sets the terms",
+      d: "Your Ethos score is signed for your wallet and checked on-chain by the market's gate. It decides which tier, and which LTV, you can open debt on.",
+    },
+    {
+      n: "02",
+      t: "Bitcoin secures the loan",
+      d: "BTC on Mezo is the only collateral. An on-chain oracle values it, and a loan below a 1.0 health factor can be liquidated by anyone.",
+    },
+    {
+      n: "03",
+      t: "Fixed terms, open exits",
+      d: `MUSD is lent at a fixed rate until ${MATURITY_LABEL}. Repaying and withdrawing collateral never check your score.`,
+    },
+  ];
+  return (
+    <div className="grid md:grid-cols-3 gap-4">
+      {items.map((i) => (
+        <div key={i.n} className="rounded-xl border border-line p-5">
+          <span className="font-mono text-micro text-brand-300">{i.n}</span>
+          <div className="mt-1.5 text-body font-semibold text-slate-50">{i.t}</div>
+          <p className="mt-1.5 text-body-sm text-subtle leading-relaxed">{i.d}</p>
+        </div>
+      ))}
     </div>
   );
 }
